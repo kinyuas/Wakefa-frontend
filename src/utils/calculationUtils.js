@@ -61,65 +61,65 @@ export const CalculationUtils = {
     return (profitNum / revenueNum) * 100;
   },
 
-  // Calculate cost from items with product data integration
-  calculateCostFromItems: (transaction, products = []) => {
-    try {
-      // If cost is already provided and valid, use it
-      if (transaction.cost && CalculationUtils.safeNumber(transaction.cost) > 0) {
-        return CalculationUtils.safeNumber(transaction.cost);
-      }
+// Modified version of calculateCostFromItems
+calculateCostFromItems: (transaction, products = []) => {
+  try {
+    // If cost is already provided and valid, use it
+    if (transaction.cost && CalculationUtils.safeNumber(transaction.cost) > 0) {
+      return CalculationUtils.safeNumber(transaction.cost);
+    }
+    
+    if (transaction.totalCost && CalculationUtils.safeNumber(transaction.totalCost) > 0) {
+      return CalculationUtils.safeNumber(transaction.totalCost);
+    }
+
+    // Calculate cost from items
+    if (transaction.items && Array.isArray(transaction.items)) {
+      let totalCost = 0;
+      let hasActualCost = false;
       
-      if (transaction.totalCost && CalculationUtils.safeNumber(transaction.totalCost) > 0) {
-        return CalculationUtils.safeNumber(transaction.totalCost);
-      }
-
-      // Calculate cost from items
-      if (transaction.items && Array.isArray(transaction.items)) {
-        let totalCost = 0;
+      for (const item of transaction.items) {
+        const quantity = CalculationUtils.safeNumber(item.quantity, 1);
+        let itemCost = 0;
         
-        for (const item of transaction.items) {
-          const quantity = CalculationUtils.safeNumber(item.quantity, 1);
+        // Try to get cost from different sources
+        if (item.cost && CalculationUtils.safeNumber(item.cost) > 0) {
+          itemCost = CalculationUtils.safeNumber(item.cost);
+          hasActualCost = true;
+        }
+        else if (item.buyingPrice && CalculationUtils.safeNumber(item.buyingPrice) > 0) {
+          itemCost = CalculationUtils.safeNumber(item.buyingPrice);
+          hasActualCost = true;
+        }
+        else if (item.productId && products.length > 0) {
+          const product = products.find(p => 
+            p._id && item.productId && p._id.toString() === item.productId.toString()
+          );
           
-          // Try to get cost from different sources in priority order
-          let itemCost = 0;
-          
-          // Priority 1: Direct cost field in item
-          if (item.cost && CalculationUtils.safeNumber(item.cost) > 0) {
-            itemCost = CalculationUtils.safeNumber(item.cost);
+          if (product && product.buyingPrice && CalculationUtils.safeNumber(product.buyingPrice) > 0) {
+            itemCost = CalculationUtils.safeNumber(product.buyingPrice);
+            hasActualCost = true;
           }
-          // Priority 2: Buying price field in item
-          else if (item.buyingPrice && CalculationUtils.safeNumber(item.buyingPrice) > 0) {
-            itemCost = CalculationUtils.safeNumber(item.buyingPrice);
-          }
-          // Priority 3: Look up product buying price from products array
-          else if (item.productId && products.length > 0) {
-            const product = products.find(p => 
-              p._id && item.productId && 
-              (p._id.toString() === item.productId.toString() || 
-               (p._id && item.productId._id && p._id.toString() === item.productId._id.toString()))
-            );
-            
-            if (product) {
-              itemCost = CalculationUtils.safeNumber(product.buyingPrice);
-            }
-          }
-          // Priority 4: Use a default cost estimation (30% of price as fallback)
-          else if (item.price && CalculationUtils.safeNumber(item.price) > 0) {
-            itemCost = CalculationUtils.safeNumber(item.price) * 0.3; // Estimate 30% cost
-          }
-
-          totalCost += itemCost * quantity;
         }
         
-        return totalCost;
+        totalCost += itemCost * quantity;
       }
       
-      return 0;
-    } catch (error) {
-      console.error('❌ Error calculating cost from items:', error);
-      return 0;
+      // If no actual costs were found, return 0 instead of estimating
+      if (!hasActualCost) {
+        console.log('⚠️ No actual buying prices found, returning 0 cost');
+        return 0;
+      }
+      
+      return totalCost;
     }
-  },
+    
+    return 0;
+  } catch (error) {
+    console.error('❌ Error calculating cost from items:', error);
+    return 0;
+  }
+},
 
   // Calculate COGS for transactions array - SIMPLIFIED (No credit handling needed)
   calculateCOGS: (transactions, products = []) => {
@@ -373,8 +373,8 @@ export const CalculationUtils = {
       // Calculate revenue
       const totalRevenue = CalculationUtils.calculateRevenue(validTransactions);
       
-      // Calculate COGS
-      const costOfGoodsSold = CalculationUtils.calculateCOGS(validTransactions, products);
+      // Calculate COGS using consistent method
+      const costOfGoodsSold = CalculationUtils.calculateCOGSConsistent(validTransactions, products);
       
       // Calculate profit
       const totalProfit = CalculationUtils.calculateProfit(totalRevenue, costOfGoodsSold);
@@ -385,34 +385,13 @@ export const CalculationUtils = {
       );
       const netProfit = CalculationUtils.calculateProfit(totalProfit, totalExpensesAmount);
       
-      // Payment method calculations
-      const cashTransactions = validTransactions.filter(t => 
-        t.paymentMethod === 'cash' || 
-        (t.paymentSplit && CalculationUtils.safeNumber(t.paymentSplit.cash) > 0)
-      );
-      const mpesaBankTransactions = validTransactions.filter(t => 
-        ['mpesa', 'bank', 'card', 'bank_mpesa'].includes(t.paymentMethod) ||
-        (t.paymentSplit && CalculationUtils.safeNumber(t.paymentSplit.bank_mpesa) > 0)
-      );
-
-      // Calculate totals considering payment splits
-      const totalCash = cashTransactions.reduce((sum, t) => {
-        if (t.paymentSplit && CalculationUtils.safeNumber(t.paymentSplit.cash) > 0) {
-          return sum + CalculationUtils.safeNumber(t.paymentSplit.cash);
-        }
-        return sum + CalculationUtils.safeNumber(t.totalAmount);
-      }, 0);
-      
-      const totalMpesaBank = mpesaBankTransactions.reduce((sum, t) => {
-        if (t.paymentSplit && CalculationUtils.safeNumber(t.paymentSplit.bank_mpesa) > 0) {
-          return sum + CalculationUtils.safeNumber(t.paymentSplit.bank_mpesa);
-        }
-        return sum + CalculationUtils.safeNumber(t.totalAmount);
-      }, 0);
+      // Calculate payment composition using the new function
+      const paymentComposition = CalculationUtils.calculatePaymentComposition(validTransactions);
 
       console.log('💰 FINAL Financial Breakdown:', {
         totalRevenue: totalRevenue,
-        totalTransactions: validTransactions.length
+        totalTransactions: validTransactions.length,
+        paymentComposition: paymentComposition
       });
 
       return {
@@ -423,8 +402,11 @@ export const CalculationUtils = {
         grossProfit: parseFloat(totalProfit.toFixed(2)),
         netProfit: parseFloat(netProfit.toFixed(2)),
         costOfGoodsSold: parseFloat(costOfGoodsSold.toFixed(2)),
-        totalMpesaBank: parseFloat(totalMpesaBank.toFixed(2)),
-        totalCash: parseFloat(totalCash.toFixed(2)),
+        totalMpesaBank: parseFloat(paymentComposition.mpesa_bank.toFixed(2)),
+        totalCash: parseFloat(paymentComposition.cash.toFixed(2)),
+        
+        // Payment composition
+        paymentComposition: paymentComposition,
         
         // Additional metrics
         profitMargin: CalculationUtils.calculateProfitMargin(totalRevenue, netProfit),
@@ -635,6 +617,29 @@ export const CalculationUtils = {
       .sort((a, b) => b.revenue - a.revenue);
   },
 
+  // Unified COGS calculation that matches server logic
+  calculateCOGSConsistent: (transactions, products = []) => {
+    if (!Array.isArray(transactions)) return 0;
+    
+    console.log('🧮 Unified COGS Calculation - Processing:', transactions.length, 'transactions');
+    
+    const totalCOGS = transactions.reduce((sum, transaction) => {
+      // Try to get cost from transaction first (should match server calculation)
+      const transactionCost = CalculationUtils.safeNumber(transaction.cost);
+      
+      if (transactionCost > 0) {
+        return sum + transactionCost;
+      }
+      
+      // Fallback to item-based calculation
+      const costFromItems = CalculationUtils.calculateCostFromItems(transaction, products);
+      return sum + costFromItems;
+    }, 0);
+    
+    console.log('💰 Unified COGS Result:', totalCOGS);
+    return totalCOGS;
+  },
+
   // Cashier performance calculation
   calculateCashierPerformance: (transactions, cashiers = []) => {
     if (!transactions || !Array.isArray(transactions)) {
@@ -663,7 +668,8 @@ export const CalculationUtils = {
           profit: 0,
           itemsSold: 0,
           performanceScore: 0,
-          costOfGoodsSold: 0
+          costOfGoodsSold: 0,
+          paymentMethods: { cash: 0, mpesa_bank: 0 }
         };
       }
       
@@ -674,6 +680,11 @@ export const CalculationUtils = {
       cashierSales[cashierId].transactions += 1;
       cashierSales[cashierId].itemsSold += CalculationUtils.safeNumber(sale.itemsCount || 0);
       cashierSales[cashierId].costOfGoodsSold += CalculationUtils.safeNumber(sale.cost || 0);
+      
+      // Calculate payment methods using new function
+      const split = CalculationUtils.calculatePaymentSplit(sale);
+      cashierSales[cashierId].paymentMethods.cash += split.cash;
+      cashierSales[cashierId].paymentMethods.mpesa_bank += split.mpesa_bank;
     });
     
     return Object.values(cashierSales)
@@ -684,9 +695,77 @@ export const CalculationUtils = {
         costOfGoodsSold: parseFloat(cashier.costOfGoodsSold.toFixed(2)),
         profitMargin: CalculationUtils.calculateProfitMargin(cashier.revenue, cashier.profit),
         averageTransactionValue: cashier.transactions > 0 ? parseFloat((cashier.revenue / cashier.transactions).toFixed(2)) : 0,
-        performanceScore: CalculationUtils.calculatePerformanceScore(cashier)
+        performanceScore: CalculationUtils.calculatePerformanceScore(cashier),
+        paymentMethods: {
+          cash: parseFloat(cashier.paymentMethods.cash.toFixed(2)),
+          mpesa_bank: parseFloat(cashier.paymentMethods.mpesa_bank.toFixed(2)),
+          total: parseFloat((cashier.paymentMethods.cash + cashier.paymentMethods.mpesa_bank).toFixed(2))
+        }
       }))
       .sort((a, b) => b.performanceScore - a.performanceScore);
+  },
+
+  // Handle consistent payment split calculations
+  calculatePaymentSplit: (transaction) => {
+    const paymentMethod = transaction.paymentMethod;
+    const totalAmount = CalculationUtils.safeNumber(transaction.totalAmount);
+    
+    let cash = 0;
+    let mpesa_bank = 0;
+    
+    if (paymentMethod === 'cash') {
+      cash = totalAmount;
+    } else if (paymentMethod === 'mpesa_bank') {
+      mpesa_bank = totalAmount;
+    } else if (paymentMethod === 'cash_mpesa_bank' && transaction.paymentSplit) {
+      cash = CalculationUtils.safeNumber(transaction.paymentSplit.cash);
+      mpesa_bank = CalculationUtils.safeNumber(transaction.paymentSplit.mpesa_bank);
+    } else if (paymentMethod === 'cash_mpesa_bank') {
+      // Fallback for old data structure
+      cash = CalculationUtils.safeNumber(transaction.cashAmount || 0);
+      mpesa_bank = CalculationUtils.safeNumber(transaction.mpesaBankAmount || transaction.bankMpesaAmount || 0);
+    } else {
+      // Default fallback for other payment methods
+      cash = totalAmount;
+    }
+    
+    return {
+      cash,
+      mpesa_bank,
+      total: cash + mpesa_bank
+    };
+  },
+
+  // Calculate payment composition for transactions
+  calculatePaymentComposition: (transactions) => {
+    const composition = {
+      cash: 0,
+      mpesa_bank: 0,
+      total: 0,
+      transactions: transactions.length
+    };
+    
+    transactions.forEach(transaction => {
+      const split = CalculationUtils.calculatePaymentSplit(transaction);
+      composition.cash += split.cash;
+      composition.mpesa_bank += split.mpesa_bank;
+      composition.total += split.total;
+    });
+    
+    // Calculate percentages
+    composition.cashPercentage = composition.total > 0 ? 
+      (composition.cash / composition.total) * 100 : 0;
+    composition.mpesaBankPercentage = composition.total > 0 ? 
+      (composition.mpesa_bank / composition.total) * 100 : 0;
+    
+    // Format values
+    composition.cash = parseFloat(composition.cash.toFixed(2));
+    composition.mpesa_bank = parseFloat(composition.mpesa_bank.toFixed(2));
+    composition.total = parseFloat(composition.total.toFixed(2));
+    composition.cashPercentage = parseFloat(composition.cashPercentage.toFixed(1));
+    composition.mpesaBankPercentage = parseFloat(composition.mpesaBankPercentage.toFixed(1));
+    
+    return composition;
   },
 
   // Default data structures
@@ -720,6 +799,16 @@ export const CalculationUtils = {
     costOfGoodsSold: 0,
     totalMpesaBank: 0,
     totalCash: 0,
+    
+    // Payment composition
+    paymentComposition: {
+      cash: 0,
+      mpesa_bank: 0,
+      total: 0,
+      cashPercentage: 0,
+      mpesaBankPercentage: 0,
+      transactions: 0
+    },
     
     // Additional metrics
     profitMargin: 0,

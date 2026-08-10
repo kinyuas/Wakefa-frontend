@@ -1,4 +1,4 @@
-// src/pages/Cashier/ShopSelection.jsx - ANDROID OPTIMIZED VERSION
+// src/pages/Cashier/ShopSelection.jsx - UPDATED VERSION
 import React, { useState, useEffect } from 'react';
 import {
   Container,
@@ -22,15 +22,12 @@ import {
 } from '@mui/material';
 import {
   Store,
-  ArrowForward,
   Person,
   Logout,
   PointOfSale,
   CheckCircle,
   Warning,
   LocationOn,
-  Schedule,
-  ShoppingBag,
   WorkspacePremium,
   Security,
   Speed,
@@ -43,7 +40,6 @@ const ShopSelection = () => {
   const navigate = useNavigate();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
-  const isTablet = useMediaQuery(theme.breakpoints.down('md'));
   
   const [shops, setShops] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -52,7 +48,6 @@ const ShopSelection = () => {
   const [selectingShop, setSelectingShop] = useState(null);
   const [animatedShops, setAnimatedShops] = useState([]);
 
-  // Enhanced color scheme with better visibility and attractiveness
   const colors = {
     primary: {
       main: '#4F46E5',
@@ -68,27 +63,12 @@ const ShopSelection = () => {
       gradient: 'linear-gradient(135deg, #10B981 0%, #34D399 100%)',
       glow: '0 0 20px rgba(16, 185, 129, 0.4)'
     },
-    accent: {
-      main: '#F59E0B',
-      light: '#FBBF24',
-      dark: '#D97706',
-      gradient: 'linear-gradient(135deg, #F59E0B 0%, #FBBF24 100%)'
-    },
-    // ADDED: Success color (similar to cashier but with different name for clarity)
-    success: {
-      main: '#10B981',
-      light: '#34D399',
-      dark: '#059669',
-      gradient: 'linear-gradient(135deg, #10B981 0%, #34D399 100%)'
-    },
-    // ADDED: Error color
     error: {
       main: '#EF4444',
       light: '#F87171',
       dark: '#DC2626',
       gradient: 'linear-gradient(135deg, #EF4444 0%, #F87171 100%)'
     },
-    // ADDED: Warning color (similar to accent but with different name)
     warning: {
       main: '#F59E0B',
       light: '#FBBF24',
@@ -108,7 +88,6 @@ const ShopSelection = () => {
     }
   };
 
-  // Android-friendly responsive styles
   const styles = {
     container: {
       px: isMobile ? 1.5 : 3,
@@ -170,7 +149,6 @@ const ShopSelection = () => {
   }, []);
 
   useEffect(() => {
-    // Animate shops when they load
     if (shops.length > 0) {
       const timers = shops.map((_, index) => {
         return setTimeout(() => {
@@ -201,10 +179,14 @@ const ShopSelection = () => {
       setError(null);
       setAnimatedShops([]);
       
+      // Call the API to get shops
       const response = await shopAPI.getAll();
+      
+      console.log('🔄 Fetching shops from API...');
       
       let shopsData = [];
       
+      // Handle different response structures
       if (response && typeof response === 'object') {
         if (Array.isArray(response.data)) {
           shopsData = response.data;
@@ -217,6 +199,11 @@ const ShopSelection = () => {
       
       const validatedShops = Array.isArray(shopsData) ? shopsData : [];
       
+      console.log(`📊 Raw shops data received: ${validatedShops.length} items`);
+      
+      // Remove duplicates by _id AND name for extra safety
+      const uniqueShopsMap = new Map();
+      
       const safeShops = validatedShops
         .filter(shop => shop && typeof shop === 'object' && shop._id && shop.name)
         .map(shop => ({
@@ -225,13 +212,27 @@ const ShopSelection = () => {
           location: shop.location || 'Location not specified',
           description: shop.description || '',
           status: shop.status || 'active',
-          createdAt: shop.createdAt || new Date().toISOString(),
-          metrics: {
-            salesToday: Math.floor(Math.random() * 5000) + 1000,
-            customers: Math.floor(Math.random() * 50) + 10,
-            rating: (Math.random() * 2 + 3).toFixed(1)
+          createdAt: shop.createdAt || new Date().toISOString()
+        }))
+        .filter(shop => {
+          // Create a unique key using both _id and normalized name
+          const shopKey = `${shop._id}-${shop.name.trim().toLowerCase()}`;
+          
+          if (uniqueShopsMap.has(shopKey)) {
+            console.log(`⚠️ Skipping duplicate shop: ${shop.name} (${shop._id})`);
+            return false;
           }
-        }));
+          
+          uniqueShopsMap.set(shopKey, shop);
+          return true;
+        });
+      
+      console.log(`✅ Unique shops after filtering: ${safeShops.length} shops`);
+      
+      // Log shop names for debugging
+      safeShops.forEach(shop => {
+        console.log(`🏪 Shop: ${shop.name} (ID: ${shop._id})`);
+      });
       
       setShops(safeShops);
       
@@ -240,7 +241,7 @@ const ShopSelection = () => {
       }
       
     } catch (error) {
-      console.error('Error fetching shops:', error);
+      console.error('❌ Error fetching shops:', error);
       setError('Failed to load shops. Please check your connection and try again.');
       setShops([]);
     } finally {
@@ -275,7 +276,6 @@ const ShopSelection = () => {
       localStorage.setItem('cashierData', JSON.stringify(updatedCashierData));
       setCashier(updatedCashierData);
       
-      // Visual feedback with animation
       setTimeout(() => {
         navigate('/cashier/dashboard', { 
           replace: true,
@@ -311,7 +311,6 @@ const ShopSelection = () => {
     fetchShops();
   };
 
-  // Loading state
   if (loading) {
     return (
       <Box sx={{ 
@@ -379,10 +378,9 @@ const ShopSelection = () => {
       maxWidth={isMobile ? "sm" : "md"}
       sx={styles.container}
     >
-      {/* Main Content Card with Enhanced Design */}
       <Slide direction="up" in={!loading} mountOnEnter unmountOnExit>
         <Card sx={styles.card}>
-          {/* Header Section with Gradient Background */}
+          {/* Header Section */}
           <Box sx={{ 
             textAlign: 'center', 
             padding: isMobile ? 3 : 4,
@@ -390,27 +388,6 @@ const ShopSelection = () => {
             position: 'relative',
             overflow: 'hidden'
           }}>
-            {/* Animated Background Elements */}
-            <Box sx={{
-              position: 'absolute',
-              top: -50,
-              right: -50,
-              width: 100,
-              height: 100,
-              borderRadius: '50%',
-              background: alpha(colors.primary.light, 0.1),
-              filter: 'blur(40px)'
-            }} />
-            <Box sx={{
-              position: 'absolute',
-              bottom: -30,
-              left: -30,
-              width: 80,
-              height: 80,
-              borderRadius: '50%',
-              background: alpha(colors.cashier.light, 0.1),
-              filter: 'blur(30px)'
-            }} />
             
             {selectingShop && (
               <Zoom in={selectingShop}>
@@ -436,7 +413,6 @@ const ShopSelection = () => {
               </Zoom>
             )}
             
-            {/* Cashier Avatar with Glow Effect */}
             <Box sx={{ position: 'relative', mb: 2 }}>
               <Avatar 
                 sx={{ 
@@ -468,7 +444,6 @@ const ShopSelection = () => {
               />
             </Box>
             
-            {/* Welcome Message */}
             <Typography 
               variant={isMobile ? "h5" : "h4"} 
               sx={{ 
@@ -498,7 +473,7 @@ const ShopSelection = () => {
             
             <Chip 
               icon={<Store sx={{ color: colors.cashier.light }} />}
-              label={`${shops.length} shops available`}
+              label={`${shops.length} unique shops available`}
               variant="outlined"
               sx={{ 
                 color: colors.cashier.light,
@@ -549,7 +524,6 @@ const ShopSelection = () => {
               />
             </Box>
 
-            {/* Error Display */}
             {error && (
               <Zoom in={!!error}>
                 <Alert 
@@ -587,7 +561,6 @@ const ShopSelection = () => {
               </Zoom>
             )}
 
-            {/* No Shops Available */}
             {!error && shops.length === 0 ? (
               <Zoom in={shops.length === 0}>
                 <Alert
@@ -647,7 +620,6 @@ const ShopSelection = () => {
                           flexDirection: isMobile ? 'column' : 'row',
                           gap: isMobile ? 2 : 3
                         }}>
-                          {/* Shop Avatar */}
                           <Box sx={{ 
                             display: 'flex', 
                             alignItems: 'center', 
@@ -704,37 +676,9 @@ const ShopSelection = () => {
                                   {shop.location}
                                 </Typography>
                               </Box>
-                              
-                              {/* Shop Metrics - Mobile Optimized */}
-                              <Box sx={{ 
-                                display: 'flex', 
-                                gap: 2,
-                                flexWrap: 'wrap',
-                                mt: 1
-                              }}>
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                  <ShoppingBag sx={{ fontSize: 14, color: colors.success.light }} />
-                                  <Typography variant="caption" sx={{ color: colors.text.secondary }}>
-                                    ${shop.metrics.salesToday.toLocaleString()}
-                                  </Typography>
-                                </Box>
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                  <Person sx={{ fontSize: 14, color: colors.primary.light }} />
-                                  <Typography variant="caption" sx={{ color: colors.text.secondary }}>
-                                    {shop.metrics.customers} customers
-                                  </Typography>
-                                </Box>
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                  <WorkspacePremium sx={{ fontSize: 14, color: colors.accent.light }} />
-                                  <Typography variant="caption" sx={{ color: colors.text.secondary }}>
-                                    {shop.metrics.rating} ⭐
-                                  </Typography>
-                                </Box>
-                              </Box>
                             </Box>
                           </Box>
                           
-                          {/* Action Button */}
                           <Button
                             variant="contained"
                             size={isMobile ? "medium" : "large"}
@@ -777,7 +721,6 @@ const ShopSelection = () => {
                           </Button>
                         </Box>
                         
-                        {/* Shop Description */}
                         {shop.description && (
                           <Fade in={true}>
                             <Box sx={{ 
@@ -807,7 +750,6 @@ const ShopSelection = () => {
                           </Fade>
                         )}
                         
-                        {/* Selection Progress Indicator */}
                         {selectingShop === shop._id && (
                           <Fade in={selectingShop === shop._id}>
                             <Box sx={{ 
@@ -898,7 +840,6 @@ const ShopSelection = () => {
         </Card>
       </Slide>
 
-      {/* Security Note for Mobile */}
       {isMobile && (
         <Fade in={true}>
           <Box sx={{ 

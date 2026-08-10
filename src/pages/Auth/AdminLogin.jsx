@@ -1,5 +1,5 @@
-// pages/Auth/AdminLogin.jsx - UPDATED WITH TOKEN-BASED AUTHENTICATION
-import React, { useState, useEffect } from 'react'; // ADDED React, useEffect import
+// pages/Auth/AdminLogin.jsx - UPDATED WITH SESSION EXPIRY HANDLING
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { authAPI } from '../../services/api';
 import { 
@@ -13,13 +13,16 @@ import {
   CircularProgress,
   Button,
   TextField,
-  alpha
+  alpha,
+  Slide
 } from '@mui/material';
 import { 
   AdminPanelSettings, 
   Email, 
   Security,
-  ArrowBack
+  ArrowBack,
+  Warning,
+  Info
 } from '@mui/icons-material';
 
 const AdminLogin = () => {
@@ -28,6 +31,7 @@ const AdminLogin = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [message, setMessage] = useState(null);
+  const [expiredMessage, setExpiredMessage] = useState(null);
   const [step, setStep] = useState('email'); // 'email', 'code', 'success'
   const [formData, setFormData] = useState({
     email: '',
@@ -55,61 +59,27 @@ const AdminLogin = () => {
     }
   };
 
-// pages/Auth/AdminLogin.jsx - UPDATED STORAGE FUNCTION
-const storeUserData = (user, token, refreshToken) => {
-  console.log('🔐 Storing authentication data:', { 
-    user: user.email, 
-    role: user.role,
-    hasToken: !!token,
-    hasRefreshToken: !!refreshToken
-  });
-  
-  if (!user) {
-    throw new Error('No user data provided for storage');
-  }
-  
-  // Store user data with role-based separation
-  localStorage.setItem('userData', JSON.stringify(user));
-  
-  if (user.role === 'admin') {
-    localStorage.setItem('adminData', JSON.stringify(user));
-  }
-  
-  // Store tokens
-  if (token) {
-    localStorage.setItem('token', token);
+  // Check for expired session messages
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
     
-    // Role-specific token storage
-    if (user.role === 'admin') {
-      localStorage.setItem('adminToken', token);
-    } else if (user.role === 'cashier') {
-      localStorage.setItem('cashierToken', token);
+    // Check for expired parameter
+    if (params.get('expired') === 'true') {
+      setExpiredMessage('Your session expired due to inactivity. Please log in again.');
+    } else if (params.get('expired') === 'inactivity') {
+      setExpiredMessage('Session expired after 1 hour of inactivity. Please log in again.');
     }
-  }
-  
-  if (refreshToken) {
-    localStorage.setItem('refreshToken', refreshToken);
-  }
-  
-  // Store token expiry
-  const tokenExpiry = new Date();
-  tokenExpiry.setHours(tokenExpiry.getHours() + 8); // 8 hours expiry
-  localStorage.setItem('tokenExpiry', tokenExpiry.toISOString());
-  
-  // Set last login time
-  localStorage.setItem('lastLogin', new Date().toISOString());
-  
-  // Verify storage
-  const storedToken = localStorage.getItem('token');
-  const storedUser = localStorage.getItem('userData');
-  
-  if (!storedToken || !storedUser) {
-    throw new Error('Failed to store authentication data');
-  }
-  
-  console.log('✅ Authentication data storage successful');
-  return true;
-};
+    
+    // Check for state message (from forced logout)
+    if (location.state?.message) {
+      setExpiredMessage(location.state.message);
+    }
+    
+    // Check for termination message
+    if (params.get('terminated') === 'true') {
+      setExpiredMessage('Your session was terminated by an administrator. Please log in again.');
+    }
+  }, [location]);
 
   // Function to clear all authentication data
   const clearAuthData = () => {
@@ -167,6 +137,11 @@ const storeUserData = (user, token, refreshToken) => {
     
     checkAuthentication();
   }, [navigate, location]);
+
+  // Handle back to main navigation
+  const handleBackToMain = () => {
+    navigate('/');
+  };
 
   // Request secure code (now includes token generation on verification)
   const handleRequestCode = async (e) => {
@@ -304,11 +279,36 @@ const storeUserData = (user, token, refreshToken) => {
 
         // Store authentication data
         try {
-          const storageSuccess = storeUserData(userData, token, refreshToken);
+          // Store user data with role-based separation
+          localStorage.setItem('userData', JSON.stringify(userData));
           
-          if (!storageSuccess) {
-            throw new Error('Storage validation failed');
+          if (userData.role === 'admin') {
+            localStorage.setItem('adminData', JSON.stringify(userData));
           }
+          
+          // Store tokens
+          if (token) {
+            localStorage.setItem('token', token);
+            
+            // Role-specific token storage
+            if (userData.role === 'admin') {
+              localStorage.setItem('adminToken', token);
+            } else if (userData.role === 'cashier') {
+              localStorage.setItem('cashierToken', token);
+            }
+          }
+          
+          if (refreshToken) {
+            localStorage.setItem('refreshToken', refreshToken);
+          }
+          
+          // Store token expiry
+          const tokenExpiry = new Date();
+          tokenExpiry.setHours(tokenExpiry.getHours() + 8); // 8 hours expiry
+          localStorage.setItem('tokenExpiry', tokenExpiry.toISOString());
+          
+          // Set last login time
+          localStorage.setItem('lastLogin', new Date().toISOString());
           
           console.log('🎉 Admin authentication completed successfully');
           
@@ -319,6 +319,9 @@ const storeUserData = (user, token, refreshToken) => {
           
           // Add a small delay to ensure storage is processed
           await new Promise(resolve => setTimeout(resolve, 500));
+          
+          // Clear any expired messages
+          setExpiredMessage(null);
           
           // Navigate to admin dashboard
           const redirectPath = location.state?.from || '/admin/dashboard';
@@ -445,12 +448,33 @@ const storeUserData = (user, token, refreshToken) => {
         padding: 3,
         display: 'flex',
         flexDirection: 'column',
-        justifyContent: 'center',
-        alignItems: 'center'
+        justifyContent: 'center'
       }}
     >
       <CssBaseline />
       
+      {/* Back Button */}
+      <Box sx={{ 
+        mb: 2,
+        display: 'flex',
+        justifyContent: 'flex-start'
+      }}>
+        <Button
+          startIcon={<ArrowBack />}
+          onClick={handleBackToMain}
+          sx={{ 
+            color: 'rgba(255, 255, 255, 0.7)',
+            '&:hover': {
+              backgroundColor: 'rgba(255, 255, 255, 0.1)',
+              color: 'white'
+            }
+          }}
+          disabled={loading}
+        >
+          Back to Main
+        </Button>
+      </Box>
+
       <Box
         sx={{
           width: '100%',
@@ -458,7 +482,8 @@ const storeUserData = (user, token, refreshToken) => {
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          gap: 3
+          gap: 3,
+          mx: 'auto'
         }}
       >
         {/* Header Section */}
@@ -490,17 +515,50 @@ const storeUserData = (user, token, refreshToken) => {
           </Typography>
         </Box>
 
+        {/* Session Expired Alert */}
+        {expiredMessage && (
+          <Slide direction="down" in={!!expiredMessage} mountOnEnter unmountOnExit>
+            <Alert 
+              severity="info"
+              icon={<Info />}
+              sx={{ 
+                width: '100%', 
+                borderRadius: 2,
+                border: `1px solid ${alpha('#2196f3', 0.3)}`,
+                backgroundColor: alpha('#2196f3', 0.1),
+                color: 'white',
+                '& .MuiAlert-icon': {
+                  color: '#2196f3'
+                }
+              }} 
+              onClose={() => setExpiredMessage(null)}
+            >
+              <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                {expiredMessage}
+              </Typography>
+            </Alert>
+          </Slide>
+        )}
+
         {error && (
           <Alert 
             severity="error"
+            icon={<Warning />}
             sx={{ 
               width: '100%', 
               borderRadius: 2,
-              border: `1px solid ${alpha('#ef5350', 0.3)}`
+              border: `1px solid ${alpha('#ef5350', 0.3)}`,
+              backgroundColor: alpha('#ef5350', 0.1),
+              color: 'white',
+              '& .MuiAlert-icon': {
+                color: '#ef5350'
+              }
             }} 
             onClose={() => setError(null)}
           >
-            {error}
+            <Typography variant="body2" sx={{ fontWeight: 500 }}>
+              {error}
+            </Typography>
           </Alert>
         )}
 
@@ -510,11 +568,18 @@ const storeUserData = (user, token, refreshToken) => {
             sx={{ 
               width: '100%', 
               borderRadius: 2,
-              border: `1px solid ${alpha('#4caf50', 0.3)}`
+              border: `1px solid ${alpha('#4caf50', 0.3)}`,
+              backgroundColor: alpha('#4caf50', 0.1),
+              color: 'white',
+              '& .MuiAlert-icon': {
+                color: '#4caf50'
+              }
             }} 
             onClose={() => setMessage(null)}
           >
-            {message}
+            <Typography variant="body2" sx={{ fontWeight: 500 }}>
+              {message}
+            </Typography>
           </Alert>
         )}
 
@@ -744,8 +809,6 @@ const storeUserData = (user, token, refreshToken) => {
                 fontWeight: 'bold'
               }}
             >
-    
-            
               {step === 'code' && formData.secureCode && (
                 <div>Code entered: {formData.secureCode}</div>
               )}

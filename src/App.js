@@ -1,6 +1,6 @@
-// src/App.js - UPDATED FOR TOKEN-BASED AUTHENTICATION
-import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+// src/App.js - UPDATED FOR TOKEN-BASED AUTHENTICATION WITH SESSION TRACKING
+import React, { useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 
 // Import page components
 import Home from './pages/Home';
@@ -27,6 +27,35 @@ import ShopSelection from './pages/Cashier/ShopSelection';
 // Import API for token validation
 import { authAPI } from './services/api';
 
+// Import session activity service
+import activityService from './services/activityService';
+
+// Create a wrapper component for route-based session initialization
+const RouteInitializer = ({ children, userRole }) => {
+  const location = useLocation();
+  
+  useEffect(() => {
+    // Initialize activity tracking based on route
+    if (userRole === 'admin' || location.pathname.startsWith('/admin')) {
+      console.log('🔄 Initializing admin session tracking');
+      activityService.init('admin');
+    } else if (userRole === 'cashier' || location.pathname.startsWith('/cashier')) {
+      console.log('🔄 Initializing cashier session tracking');
+      activityService.init('cashier');
+    }
+    
+    return () => {
+      // Cleanup when leaving protected routes
+      if (location.pathname.startsWith('/admin') || location.pathname.startsWith('/cashier')) {
+        console.log('🧹 Cleaning up session tracking');
+        activityService.stop();
+      }
+    };
+  }, [location.pathname, userRole]);
+
+  return <>{children}</>;
+};
+
 const App = () => {
   return (
     <BrowserRouter>
@@ -41,10 +70,18 @@ const App = () => {
         <Route path="/cashier/login" element={<CashierLogin />} />
 
         {/* Standalone Shop Selection Route */}
-        <Route path="/cashier/shops" element={<ShopSelection />} />
+        <Route path="/cashier/shops" element={
+          <RouteInitializer userRole="cashier">
+            <ShopSelection />
+          </RouteInitializer>
+        } />
 
         {/* Admin Routes */}
-        <Route path="/admin/*" element={<AdminDashboard />}>
+        <Route path="/admin/*" element={
+          <RouteInitializer userRole="admin">
+            <AdminDashboard />
+          </RouteInitializer>
+        }>
           <Route index element={<Navigate to="cashiers" replace />} />
           <Route path="cashiers" element={<CashierManagement />} />
           <Route path="shops" element={<ShopManagement />} />
@@ -58,7 +95,11 @@ const App = () => {
         </Route>
 
         {/* Cashier Routes */}
-        <Route path="/cashier/dashboard" element={<CashierDashboard />} />
+        <Route path="/cashier/dashboard" element={
+          <RouteInitializer userRole="cashier">
+            <CashierDashboard />
+          </RouteInitializer>
+        } />
         
         {/* Smart redirect */}
         <Route path="/redirect" element={<SmartRedirect />} />

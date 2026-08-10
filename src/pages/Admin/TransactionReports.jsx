@@ -1,5 +1,5 @@
 // src/pages/Admin/TransactionReports.jsx
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Table,
   Card,
@@ -7,7 +7,6 @@ import {
   Input,
   Button,
   DatePicker,
-  Statistic,
   Row,
   Col,
   Alert,
@@ -25,9 +24,17 @@ import {
   Progress,
   Badge,
   Descriptions,
-  Grid
+  Grid,
+  Layout,
+  Flex,
+  Dropdown,
+  FloatButton,
+  Segmented,
+  theme,
+  Divider
 } from 'antd';
 import {
+  // Core icons
   SearchOutlined,
   EyeOutlined,
   DollarOutlined,
@@ -44,7 +51,42 @@ import {
   FilterOutlined,
   ReloadOutlined,
   BarChartOutlined,
-  MobileOutlined
+  MobileOutlined,
+  TabletOutlined,
+  DesktopOutlined,
+  MenuOutlined,
+  CloseOutlined,
+  DownloadOutlined,
+  PrinterOutlined,
+  ShareAltOutlined,
+  InfoCircleOutlined,
+  RiseOutlined,
+  FallOutlined,
+  MoneyCollectOutlined,
+  BankOutlined,
+  PhoneOutlined,
+  CalculatorOutlined,
+  ShoppingCartOutlined,
+  CalendarOutlined,
+  EnvironmentOutlined,
+  BarcodeOutlined,
+  LineChartOutlined,
+  AreaChartOutlined,
+  CreditCardOutlined,
+  WalletOutlined,
+  PercentageOutlined,
+  ArrowUpOutlined,
+  ArrowDownOutlined,
+  StockOutlined,
+  
+  // Additional icons needed
+  DatabaseOutlined,
+  UnorderedListOutlined,
+  SettingOutlined,
+  PlusOutlined,
+  DeleteOutlined,
+  EditOutlined,
+  ShopFilled
 } from '@ant-design/icons';
 import { unifiedAPI, shopAPI } from '../../services/api';
 import { CalculationUtils } from '../../utils/calculationUtils';
@@ -52,63 +94,392 @@ import dayjs from 'dayjs';
 import advancedFormat from 'dayjs/plugin/advancedFormat';
 import isSameOrBefore from 'dayjs/plugin/isSameOrBefore';
 import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
+import relativeTime from 'dayjs/plugin/relativeTime';
 
 // Extend dayjs with plugins
 dayjs.extend(advancedFormat);
 dayjs.extend(isSameOrBefore);
 dayjs.extend(isSameOrAfter);
+dayjs.extend(relativeTime);
 
 const { RangePicker } = DatePicker;
 const { Option } = Select;
 const { Title, Text } = Typography;
 const { useBreakpoint } = Grid;
+const { Header, Content, Footer } = Layout;
+const { useToken } = theme;
 
 // =============================================
 // CONSTANTS AND CONFIGURATION
 // =============================================
 
 const TIME_RANGE_OPTIONS = [
-  { label: 'Today', value: 'daily' },
-  { label: 'Last 7 Days', value: '7d' },
-  { label: 'Last 30 Days', value: '30d' },
-  { label: 'This Year', value: 'yearly' },
-  { label: 'All Time', value: 'all' },
-  { label: 'Custom Range', value: 'custom' }
+  { label: 'Today', value: 'daily', icon: <CalendarOutlined /> },
+  { label: 'Last 7 Days', value: '7d', icon: <ClockCircleOutlined /> },
+  { label: 'Last 30 Days', value: '30d', icon: <AreaChartOutlined /> },
+  { label: 'This Year', value: 'yearly', icon: <LineChartOutlined /> },
+  { label: 'All Time', value: 'all', icon: <DatabaseOutlined /> },
+  { label: 'Custom Range', value: 'custom', icon: <FilterOutlined /> }
 ];
 
 const PAYMENT_METHOD_OPTIONS = [
-  { label: 'All Payments', value: '' },
-  { label: 'CASH', value: 'cash' },
-  { label: 'MPESA/BANK', value: 'mpesa' }
+  { label: 'All Payments', value: '', icon: <WalletOutlined /> },
+  { label: 'Cash', value: 'cash', icon: <MoneyCollectOutlined />, color: '#52c41a' },
+  { label: 'M-Pesa/Bank', value: 'mpesa_bank', icon: <BankOutlined />, color: '#1890ff' }
 ];
 
 const TRANSACTION_TYPE_OPTIONS = [
-  { label: 'All Transactions', value: '' },
-  { label: 'Complete Transactions', value: 'complete' }
+  { label: 'All Transactions', value: '', icon: <ShoppingCartOutlined /> },
+  { label: 'Complete Transactions', value: 'complete', icon: <CheckCircleOutlined /> }
 ];
 
 const STATUS_CONFIG = {
-  completed: { color: '#10b981', text: 'COMPLETED' },
-  pending: { color: '#f59e0b', text: 'PENDING' },
-  refunded: { color: '#3b82f6', text: 'REFUNDED' },
-  cancelled: { color: '#ef4444', text: 'CANCELLED' }
+  completed: { color: '#10b981', text: 'COMPLETED', icon: <CheckCircleOutlined /> },
+  pending: { color: '#f59e0b', text: 'PENDING', icon: <ClockCircleOutlined /> },
+  refunded: { color: '#3b82f6', text: 'REFUNDED', icon: <ReloadOutlined /> },
+  cancelled: { color: '#ef4444', text: 'CANCELLED', icon: <CloseOutlined /> }
 };
 
 const PAYMENT_METHOD_CONFIG = {
-  cash: { color: '#f59e0b', text: 'CASH' },
-  mpesa: { color: '#10b981', text: 'MPESA' },
-  bank: { color: '#3b82f6', text: 'BANK' },
-  card: { color: '#8b5cf6', text: 'CARD' }
+  cash: { color: '#52c41a', text: 'CASH', icon: <MoneyCollectOutlined /> },
+  mpesa: { color: '#1890ff', text: 'MPESA', icon: <PhoneOutlined /> },
+  bank: { color: '#722ed1', text: 'BANK', icon: <BankOutlined /> },
+  mpesa_bank: { color: '#1890ff', text: 'MPESA/BANK', icon: <BankOutlined /> }
 };
 
 // =============================================
-// MAIN COMPONENT - ALIGNED WITH ADMIN DASHBOARD
+// AI-ENHANCED RESPONSIVE COMPONENTS
+// =============================================
+
+const DeviceAwareCard = ({ children, title, extra, style, loading, ...props }) => {
+  const screens = useBreakpoint();
+  const { token } = useToken();
+  
+  return (
+    <Card
+      title={
+        <div style={{ 
+          display: 'flex', 
+          alignItems: 'center',
+          gap: '12px',
+          flexWrap: screens.xs ? 'wrap' : 'nowrap'
+        }}>
+          {typeof title === 'string' ? (
+            <>
+              <BarChartOutlined style={{ 
+                color: token.colorPrimary, 
+                fontSize: screens.xs ? '18px' : '22px'
+              }} />
+              <Text strong style={{ 
+                fontSize: screens.xs ? '16px' : '18px',
+                flex: 1,
+                minWidth: 0
+              }}>
+                {title}
+              </Text>
+            </>
+          ) : title}
+        </div>
+      }
+      extra={extra}
+      style={{
+        borderRadius: screens.xs ? '8px' : '12px',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+        border: 'none',
+        marginBottom: screens.xs ? '16px' : '24px',
+        ...style
+      }}
+      headStyle={{ 
+        padding: screens.xs ? '12px 16px' : '16px 24px',
+        borderBottom: `1px solid ${token.colorBorder}`,
+        background: screens.xs ? 'white' : 'transparent'
+      }}
+      bodyStyle={{ 
+        padding: screens.xs ? '16px' : '24px'
+      }}
+      loading={loading}
+      {...props}
+    >
+      {children}
+    </Card>
+  );
+};
+
+const ResponsiveStatCard = ({ title, value, prefix, suffix, icon, color, trend, children, loading }) => {
+  const screens = useBreakpoint();
+  const { token } = useToken();
+  
+  const getIconSize = () => {
+    if (screens.xxl) return 40;
+    if (screens.xl) return 36;
+    if (screens.lg) return 32;
+    if (screens.md) return 28;
+    if (screens.sm) return 26;
+    return 24;
+  };
+  
+  return (
+    <Card
+      style={{
+        height: '100%',
+        background: `linear-gradient(135deg, ${color}15, ${color}08)`,
+        borderRadius: '12px',
+        border: `1px solid ${color}20`,
+        transition: 'all 0.3s ease',
+      }}
+      hoverable
+      bodyStyle={{ 
+        padding: screens.xs ? '16px' : '20px',
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%'
+      }}
+      loading={loading}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '8px',
+            marginBottom: '8px'
+          }}>
+            <div style={{
+              background: `${color}15`,
+              borderRadius: '8px',
+              padding: '6px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}>
+              {React.cloneElement(icon, { 
+                style: { 
+                  color, 
+                  fontSize: getIconSize(),
+                  transition: 'all 0.3s ease'
+                }
+              })}
+            </div>
+            <Text strong style={{ 
+              color: token.colorTextSecondary,
+              fontSize: screens.xs ? '12px' : '14px',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis'
+            }}>
+              {title}
+            </Text>
+          </div>
+          
+          <div style={{ 
+            display: 'flex', 
+            alignItems: 'baseline',
+            gap: '4px',
+            flexWrap: 'wrap'
+          }}>
+            {prefix && (
+              <Text style={{ 
+                color: token.colorTextTertiary,
+                fontSize: screens.xs ? '12px' : '14px'
+              }}>
+                {prefix}
+              </Text>
+            )}
+            <Text strong style={{ 
+              color,
+              fontSize: screens.xs ? '22px' : '28px',
+              fontWeight: 700,
+              lineHeight: 1.2
+            }}>
+              {typeof value === 'number' ? value.toLocaleString() : value}
+            </Text>
+            {suffix && (
+              <Text style={{ 
+                color: token.colorTextTertiary,
+                fontSize: screens.xs ? '12px' : '14px'
+              }}>
+                {suffix}
+              </Text>
+            )}
+          </div>
+          
+          {trend && (
+            <div style={{ 
+              display: 'flex', 
+              alignItems: 'center',
+              gap: '4px',
+              marginTop: '4px'
+            }}>
+              {trend.direction === 'up' ? (
+                <RiseOutlined style={{ color: token.colorSuccess, fontSize: '12px' }} />
+              ) : (
+                <FallOutlined style={{ color: token.colorError, fontSize: '12px' }} />
+              )}
+              <Text style={{ 
+                color: trend.direction === 'up' ? token.colorSuccess : token.colorError,
+                fontSize: '12px',
+                fontWeight: 500
+              }}>
+                {trend.value}%
+              </Text>
+            </div>
+          )}
+        </div>
+      </div>
+      
+      {children && (
+        <div style={{ 
+          marginTop: '12px',
+          paddingTop: '12px',
+          borderTop: `1px solid ${token.colorBorder}` 
+        }}>
+          {children}
+        </div>
+      )}
+    </Card>
+  );
+};
+
+const TransactionItem = ({ transaction, screens, colors, onView }) => {
+  const { token } = useToken();
+  const [expanded, setExpanded] = useState(false);
+  
+  return (
+    <div 
+      style={{ 
+        marginBottom: '12px', 
+        padding: screens.xs ? '12px' : '16px',
+        borderRadius: '10px',
+        backgroundColor: token.colorBgContainer,
+        border: `1px solid ${token.colorBorderSecondary}`,
+        cursor: 'pointer',
+        transition: 'all 0.3s ease',
+        ':hover': {
+          borderColor: colors.primary,
+          boxShadow: `0 2px 8px ${colors.primary}15`
+        }
+      }}
+      onClick={() => setExpanded(!expanded)}
+    >
+      <div style={{ width: '100%' }}>
+        <Flex vertical={screens.xs} gap={screens.xs ? 'small' : 'middle'} justify="space-between">
+          <Flex vertical gap="small" style={{ flex: 1, minWidth: 0 }}>
+            <Flex align="center" gap="small" wrap="wrap">
+              <FileTextOutlined style={{ color: colors.primary, fontSize: '14px' }} />
+              <Text strong style={{ 
+                fontSize: screens.xs ? '13px' : '14px',
+                color: token.colorTextHeading,
+                flex: 1,
+                minWidth: 0
+              }}>
+                {transaction.transactionNumber || `TXN-${transaction._id?.substring(0, 6)}`}
+              </Text>
+              <Tag 
+                color={PAYMENT_METHOD_CONFIG[transaction.paymentMethod]?.color || '#6b7280'}
+                style={{ 
+                  borderRadius: '12px',
+                  padding: '2px 8px',
+                  fontWeight: '500',
+                  fontSize: '10px',
+                  margin: 0
+                }}
+              >
+                {transaction.paymentMethod?.toUpperCase() || 'CASH'}
+              </Tag>
+            </Flex>
+            
+            <Flex align="center" gap="small" wrap="wrap">
+              <CalendarOutlined style={{ fontSize: '11px', color: token.colorTextTertiary }} />
+              <Text style={{ 
+                fontSize: '11px', 
+                color: token.colorTextTertiary,
+              }}>
+                {dayjs(transaction.saleDate || transaction.createdAt).format('MMM D, YYYY h:mm A')}
+              </Text>
+            </Flex>
+            
+            {expanded && transaction.items && (
+              <div style={{ 
+                marginTop: '8px',
+                padding: '8px',
+                background: token.colorBgLayout,
+                borderRadius: '6px',
+                fontSize: '12px'
+              }}>
+                {transaction.items.map((item, index) => (
+                  <div key={index} style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between',
+                    padding: '4px 0',
+                    borderBottom: index < transaction.items.length - 1 ? `1px dashed ${token.colorBorder}` : 'none'
+                  }}>
+                    <Text style={{ fontSize: '11px' }}>
+                      {item.productName || item.name} × {item.quantity}
+                    </Text>
+                    <Text style={{ fontSize: '11px', fontWeight: 500 }}>
+                      KES {((item.price || 0) * (item.quantity || 1)).toLocaleString()}
+                    </Text>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Flex>
+          
+          <Flex vertical align={screens.xs ? "flex-start" : "flex-end"} gap="small">
+            <Text strong style={{ 
+              fontSize: screens.xs ? '18px' : '20px', 
+              color: colors.success,
+              textAlign: screens.xs ? 'left' : 'right'
+            }}>
+              {CalculationUtils.formatCurrency(transaction.totalAmount || 0)}
+            </Text>
+            <Button
+              type="primary"
+              size="small"
+              icon={<EyeOutlined />}
+              onClick={(e) => {
+                e.stopPropagation();
+                onView(transaction);
+              }}
+              style={{ borderRadius: '6px' }}
+            >
+              View
+            </Button>
+          </Flex>
+        </Flex>
+      </div>
+    </div>
+  );
+};
+
+// =============================================
+// MAIN COMPONENT - TRANSACTIONS REPORT
 // =============================================
 
 const TransactionsReport = ({ currentUser }) => {
   const screens = useBreakpoint();
+  const { token } = useToken();
   
-  // State management - aligned with AdminDashboard structure
+  // Device detection
+  const isMobile = screens.xs;
+  const isTablet = screens.sm && !screens.lg;
+  const isDesktop = screens.lg;
+  
+  // Colors from theme
+  const colors = {
+    primary: token.colorPrimary,
+    success: token.colorSuccess,
+    warning: token.colorWarning,
+    error: token.colorError,
+    purple: '#722ed1',
+    cyan: '#13c2c2',
+    gold: '#fa8c16',
+    lime: '#a0d911',
+    magenta: '#eb2f96',
+    volcano: '#fa541c',
+  };
+  
+  // State management
   const [dashboardData, setDashboardData] = useState({
     financialStats: CalculationUtils.getDefaultStats(),
     businessStats: {
@@ -128,14 +499,14 @@ const TransactionsReport = ({ currentUser }) => {
   const [error, setError] = useState(null);
   const [searchText, setSearchText] = useState('');
   
-  // Filters - aligned with AdminDashboard
+  // Filters - REMOVED autoRefresh from initial state
   const [filters, setFilters] = useState({
     dateRange: null,
     shop: 'all',
     paymentMethod: '',
     transactionType: '',
-    timeRange: '30d',
-    autoRefresh: false
+    timeRange: '30d'
+    // autoRefresh removed
   });
   
   const [selectedTransaction, setSelectedTransaction] = useState(null);
@@ -144,28 +515,71 @@ const TransactionsReport = ({ currentUser }) => {
   const [activeTab, setActiveTab] = useState('overview');
   const [dataTimestamp, setDataTimestamp] = useState(null);
   const [exportLoading, setExportLoading] = useState(false);
-  const [filterVisible, setFilterVisible] = useState(true);
+  const [filterVisible, setFilterVisible] = useState(!isMobile);
+  const [viewMode, setViewMode] = useState('grid'); // grid or list for mobile
+  const [timeFilter, setTimeFilter] = useState('30d');
+  const [customDateRange, setCustomDateRange] = useState(null);
+  
+  // Refs
+  const searchInputRef = useRef(null);
+  
+  // Device-aware layout configuration
+  const layoutConfig = useMemo(() => ({
+    isMobile,
+    isTablet,
+    isDesktop,
+    deviceType: isMobile ? 'mobile' : isTablet ? 'tablet' : 'desktop',
+    orientation: screens.height > screens.width ? 'portrait' : 'landscape',
+    
+    // Responsive column spans
+    cols: {
+      stats: isMobile ? 24 : isTablet ? 12 : 6,
+      charts: isMobile ? 24 : isTablet ? 24 : 12,
+    },
+    
+    // Padding and spacing
+    padding: isMobile ? '12px' : isTablet ? '16px' : '24px',
+    gap: isMobile ? '8px' : isTablet ? '12px' : '16px',
+    
+    // Font sizes
+    fontSize: {
+      title: isMobile ? '16px' : isTablet ? '18px' : '20px',
+      subtitle: isMobile ? '12px' : isTablet ? '13px' : '14px',
+      stat: isMobile ? '20px' : isTablet ? '24px' : '28px',
+      body: isMobile ? '12px' : isTablet ? '13px' : '14px',
+    }
+  }), [isMobile, isTablet, isDesktop, screens]);
 
-  // Data fetching - SAME AS ADMIN DASHBOARD
   const fetchDashboardData = async (customFilters = null) => {
     const activeFilters = customFilters || filters;
     
-    console.log('🚀 Fetching transaction report data with unified API (same as Admin Dashboard)...', activeFilters);
+    console.log('🚀 Fetching transaction report data...', activeFilters);
     
     try {
       setLoading(true);
+      setError(null); // Clear any previous errors
       
       // Fetch shops first for filtering
-      const shopsData = await shopAPI.getAll();
+      let shopsData = [];
+      try {
+        shopsData = await shopAPI.getAll();
+      } catch (shopError) {
+        console.error('Error fetching shops:', shopError);
+        shopsData = [];
+      }
+      
       setShops(shopsData);
 
-      // Build params for unified API - SAME AS ADMIN DASHBOARD
+      // Build params for unified API
       const params = {};
       
       // Apply date range filter
       if (activeFilters.dateRange && activeFilters.dateRange[0] && activeFilters.dateRange[1]) {
         params.startDate = activeFilters.dateRange[0].format('YYYY-MM-DD');
         params.endDate = activeFilters.dateRange[1].format('YYYY-MM-DD');
+      } else if (customDateRange && activeFilters.timeRange === 'custom') {
+        params.startDate = customDateRange[0].format('YYYY-MM-DD');
+        params.endDate = customDateRange[1].format('YYYY-MM-DD');
       }
       
       // Apply shop filter
@@ -173,82 +587,46 @@ const TransactionsReport = ({ currentUser }) => {
         params.shopId = activeFilters.shop;
       }
 
-      // Use unified API endpoint (same as Admin Dashboard)
-      const comprehensiveData = await unifiedAPI.getCombinedTransactions(params);
+      // Use unified API endpoint
+      let comprehensiveData = null;
+      try {
+        comprehensiveData = await unifiedAPI.getCombinedTransactions(params);
+      } catch (apiError) {
+        console.error('Error fetching combined transactions:', apiError);
+        comprehensiveData = { salesWithProfit: [], financialStats: CalculationUtils.getDefaultStats() };
+      }
       
-      console.log('📊 Unified API response for Transaction Report:', {
+      console.log('📊 Unified API response:', {
         transactions: comprehensiveData.salesWithProfit?.length,
-        financialStats: comprehensiveData.financialStats,
-        hasEnhancedStats: !!comprehensiveData.enhancedStats
+        financialStats: comprehensiveData.financialStats
       });
 
-      // Process data using the SAME utility as Admin Dashboard
+      // Process data
       const processedData = processDashboardData(comprehensiveData, shopsData, activeFilters);
 
       setDashboardData(processedData);
       setDataTimestamp(new Date().toISOString());
       
-      console.log('✅ Transaction Report data processed (same as Admin Dashboard):', {
+      console.log('✅ Transaction Report data processed:', {
         totalRevenue: processedData.financialStats.totalRevenue,
         netProfit: processedData.financialStats.netProfit,
         recentTransactions: processedData.recentTransactions.length
       });
       
-      message.success(`Transaction Report refreshed - ${processedData.financialStats.totalSales} transactions`);
-  
+
     } catch (error) {
       console.error('💥 Transaction Report fetch failed:', error);
-      await fetchDataWithFallback(activeFilters);
+      setError(error.message || 'Failed to load transaction data');
     } finally {
       setLoading(false);
     }
   };
 
-  // Fallback - SAME AS ADMIN DASHBOARD
-  const fetchDataWithFallback = async (activeFilters) => {
-    try {
-      const shopsData = await shopAPI.getAll();
-      setShops(shopsData);
-
-      // Build basic params for fallback
-      const params = {};
-      if (activeFilters.shop && activeFilters.shop !== 'all') {
-        params.shopId = activeFilters.shop;
-      }
-
-      const comprehensiveData = await unifiedAPI.getCombinedTransactions(params);
-      const processedData = processDashboardData(comprehensiveData, shopsData, activeFilters);
-
-      setDashboardData(processedData);
-      setDataTimestamp(new Date().toISOString());
-      
-    } catch (fallbackError) {
-      console.error('💥 Fallback data fetch failed:', fallbackError);
-      message.error('Failed to load transaction report data');
-      
-      // Set empty data structure
-      setDashboardData({
-        financialStats: CalculationUtils.getDefaultStats(),
-        businessStats: {
-          totalProducts: 0,
-          totalShops: 0,
-          totalCashiers: 0,
-          lowStockCount: 0
-        },
-        recentTransactions: [],
-        lowStockProducts: [],
-        topProducts: [],
-        shopPerformance: [],
-        cashierPerformance: []
-      });
-    }
-  };
-
-  // Data processing - SAME AS ADMIN DASHBOARD
+  // Data processing function
   const processDashboardData = (comprehensiveData, shops, activeFilters) => {
-    console.log('🔄 Processing transaction report data with unified structure (same as Admin Dashboard)...');
+    console.log('🔄 Processing transaction report data...');
     
-    // Use the same data processing as Admin Dashboard
+    // Use CalculationUtils to process data
     const processedData = CalculationUtils.processComprehensiveData(
       comprehensiveData, 
       activeFilters.shop === 'all' ? null : activeFilters.shop,
@@ -272,7 +650,7 @@ const TransactionsReport = ({ currentUser }) => {
       cashiers: cashiers.length
     });
 
-    // Apply additional filters for transaction report
+    // Apply additional filters
     let filteredTransactions = transactions;
     
     // Apply payment method filter
@@ -280,12 +658,6 @@ const TransactionsReport = ({ currentUser }) => {
       filteredTransactions = filteredTransactions.filter(t => 
         t.paymentMethod === activeFilters.paymentMethod
       );
-    }
-    
-    // Apply transaction type filter (only complete transactions now)
-    if (activeFilters.transactionType === 'complete') {
-      // All transactions are complete since credit is removed
-      filteredTransactions = filteredTransactions;
     }
 
     // Apply date range filter to transactions if needed
@@ -298,7 +670,7 @@ const TransactionsReport = ({ currentUser }) => {
       );
     }
 
-    // Recent transactions (all filtered transactions for report)
+    // Recent transactions
     const recentTransactions = filteredTransactions
       .sort((a, b) => new Date(b.saleDate || b.createdAt) - new Date(a.saleDate || a.createdAt));
 
@@ -307,54 +679,31 @@ const TransactionsReport = ({ currentUser }) => {
       CalculationUtils.safeNumber(p.currentStock) <= CalculationUtils.safeNumber(p.minStockLevel, 5)
     ).slice(0, 5);
 
-    // Top products using same calculation as Admin Dashboard
+    // Top products
     const topProducts = CalculationUtils.calculateTopProducts(filteredTransactions, 10);
 
-    // Shop performance using same calculation as Admin Dashboard
+    // Shop performance
     const shopPerformance = CalculationUtils.calculateShopPerformance(filteredTransactions, shops);
 
-    // Cashier performance using same calculation as Admin Dashboard
+    // Cashier performance
     const cashierPerformance = CalculationUtils.calculateCashierPerformance(filteredTransactions, cashiers);
 
-    // ENHANCE COGS CALCULATION: Use the same robust calculation as in Admin Dashboard
-    const costOfGoodsSold = financialStats.costOfGoodsSold || 
-                           filteredTransactions.reduce((sum, t) => {
-                             // Calculate from transaction cost or items using the same logic as in main calculations
-                             if (t.cost) {
-                               return sum + CalculationUtils.safeNumber(t.cost);
-                             }
-                             
-                             // Calculate from items as fallback using the utility function
-                             return sum + CalculationUtils.calculateCostFromItems(t);
-                           }, 0);
-
-    // Enhanced financial stats with additional calculations - SAME AS ADMIN DASHBOARD
+    // Enhanced financial stats
     const enhancedFinancialStats = {
       ...financialStats,
-      // Remove credit-related fields
-      creditSales: 0,
-      creditSalesCount: 0,
-      nonCreditSales: financialStats.totalRevenue || 0,
-      outstandingCredit: 0,
-      totalCreditGiven: 0,
-      // Ensure all required fields are present
       totalRevenue: financialStats.totalRevenue || 0,
       netProfit: financialStats.netProfit || 0,
       totalSales: financialStats.totalSales || filteredTransactions.length,
       totalExpenses: financialStats.totalExpenses || expenses.reduce((sum, e) => sum + CalculationUtils.safeNumber(e.amount), 0),
-      
-      // Use the enhanced COGS calculation
-      costOfGoodsSold: parseFloat(costOfGoodsSold.toFixed(2)),
-      
-      // Recalculate gross profit and profit margin with accurate COGS
-      grossProfit: financialStats.grossProfit || parseFloat((financialStats.totalRevenue - costOfGoodsSold).toFixed(2)),
-      profitMargin: financialStats.profitMargin || CalculationUtils.calculateProfitMargin(financialStats.totalRevenue, financialStats.grossProfit)
+      costOfGoodsSold: financialStats.costOfGoodsSold || filteredTransactions.reduce((sum, t) => {
+        if (t.cost) return sum + CalculationUtils.safeNumber(t.cost);
+        return sum + CalculationUtils.calculateCostFromItems(t);
+      }, 0),
+      grossProfit: financialStats.grossProfit || parseFloat((financialStats.totalRevenue - (financialStats.costOfGoodsSold || 0)).toFixed(2)),
+      profitMargin: financialStats.profitMargin || CalculationUtils.calculateProfitMargin(financialStats.totalRevenue, financialStats.grossProfit),
+      totalCash: financialStats.totalCash || filteredTransactions.filter(t => t.paymentMethod === 'cash').reduce((sum, t) => sum + (t.totalAmount || 0), 0),
+      totalMpesaBank: financialStats.totalMpesaBank || filteredTransactions.filter(t => ['mpesa', 'bank', 'mpesa_bank'].includes(t.paymentMethod)).reduce((sum, t) => sum + (t.totalAmount || 0), 0)
     };
-
-    // Recalculate net profit with accurate expenses and COGS
-    if (!financialStats.netProfit) {
-      enhancedFinancialStats.netProfit = parseFloat((enhancedFinancialStats.grossProfit - enhancedFinancialStats.totalExpenses).toFixed(2));
-    }
 
     // Business stats
     const businessStats = {
@@ -415,76 +764,77 @@ const TransactionsReport = ({ currentUser }) => {
 
   // Update date range when timeRange changes
   useEffect(() => {
-    const newDateRange = calculateDateRange(filters.timeRange);
-    setFilters(prev => ({ ...prev, dateRange: newDateRange }));
-  }, [filters.timeRange, calculateDateRange]);
-
-  // Auto-refresh effect - SAME AS ADMIN DASHBOARD
-  useEffect(() => {
-    let intervalId;
-    
-    if (filters.autoRefresh) {
-      intervalId = setInterval(() => {
-        console.log('🔄 Auto-refreshing transaction report...');
-        fetchDashboardData();
-      }, 30000); // Refresh every 30 seconds
+    if (timeFilter !== 'custom') {
+      const newDateRange = calculateDateRange(timeFilter);
+      setFilters(prev => ({ ...prev, dateRange: newDateRange, timeRange: timeFilter }));
     }
-    
-    return () => {
-      if (intervalId) {
-        clearInterval(intervalId);
-      }
-    };
-  }, [filters.autoRefresh]);
+  }, [timeFilter, calculateDateRange]);
+
+  // Handle time filter change
+  const handleTimeFilterChange = (value) => {
+    setTimeFilter(value);
+    if (value !== 'custom') {
+      setCustomDateRange(null);
+      const newDateRange = calculateDateRange(value);
+      setFilters(prev => ({ ...prev, dateRange: newDateRange, timeRange: value }));
+    } else {
+      setFilters(prev => ({ ...prev, timeRange: 'custom' }));
+    }
+  };
+
+  // Handle custom date change
+  const handleCustomDateChange = (dates) => {
+    setCustomDateRange(dates);
+    if (dates) {
+      setFilters(prev => ({ 
+        ...prev, 
+        dateRange: dates,
+        timeRange: 'custom'
+      }));
+    }
+  };
+
+  // AUTO-REFRESH EFFECT COMPLETELY REMOVED
 
   // Auto-fetch data when filters change
   useEffect(() => {
     fetchDashboardData();
-  }, [filters.shop, filters.timeRange, filters.paymentMethod, filters.transactionType]);
+  }, [filters.shop, filters.timeRange, filters.paymentMethod, filters.transactionType, filters.dateRange]);
 
   // Handle filter changes
   const handleFilterChange = (key, value) => {
     const newFilters = { ...filters, [key]: value };
     setFilters(newFilters);
     
-    // Auto-refresh when filters change
-    fetchDashboardData(newFilters);
+    if (key !== 'dateRange') {
+      fetchDashboardData(newFilters);
+    }
   };
 
   // Clear all filters
   const handleClearFilters = () => {
+    setTimeFilter('30d');
+    setCustomDateRange(null);
     const clearedFilters = {
-      dateRange: null,
+      dateRange: calculateDateRange('30d'),
       shop: 'all',
       paymentMethod: '',
       transactionType: '',
-      timeRange: '30d',
-      autoRefresh: filters.autoRefresh // Keep auto-refresh setting
+      timeRange: '30d'
+      // autoRefresh removed
     };
     setFilters(clearedFilters);
     fetchDashboardData(clearedFilters);
-    message.info('Filters cleared - showing last 30 days data');
+   
   };
 
-  // Quick refresh function - SAME AS ADMIN DASHBOARD
-  const quickRefresh = async () => {
+  // Manual refresh only (no auto-refresh)
+  const handleManualRefresh = async () => {
     setLoading(true);
     try {
-      const params = {};
-      if (filters.shop && filters.shop !== 'all') {
-        params.shopId = filters.shop;
-      }
-
-      const comprehensiveData = await unifiedAPI.getCombinedTransactions(params);
-      const shopsData = await shopAPI.getAll();
-      const processedData = processDashboardData(comprehensiveData, shopsData, filters);
-      
-      setDashboardData(processedData);
-      setDataTimestamp(new Date().toISOString());
-      message.success('Quick refresh completed');
+      await fetchDashboardData(filters);
     } catch (error) {
-      console.error('Quick refresh failed:', error);
-      message.error('Quick refresh failed');
+      console.error('Manual refresh failed:', error);
     } finally {
       setLoading(false);
     }
@@ -502,7 +852,11 @@ const TransactionsReport = ({ currentUser }) => {
       const exportData = {
         timestamp: dataTimestamp,
         filters: filters,
-        ...dashboardData
+        financialStats: dashboardData.financialStats,
+        transactions: dashboardData.recentTransactions,
+        shopPerformance: dashboardData.shopPerformance,
+        cashierPerformance: dashboardData.cashierPerformance,
+        topProducts: dashboardData.topProducts
       };
 
       const dataStr = JSON.stringify(exportData, null, 2);
@@ -516,10 +870,8 @@ const TransactionsReport = ({ currentUser }) => {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
 
-      message.success('Data exported successfully');
     } catch (error) {
       console.error('Export failed:', error);
-      message.error('Failed to export data');
     } finally {
       setExportLoading(false);
     }
@@ -554,27 +906,14 @@ const TransactionsReport = ({ currentUser }) => {
     return filtered;
   }, [dashboardData, searchText]);
 
-  // Transaction type counts
-  const transactionTypeCounts = useMemo(() => {
-    if (!dashboardData?.recentTransactions) {
-      return { total: 0, complete: 0 };
-    }
-    
-    const transactions = dashboardData.recentTransactions;
-    return {
-      total: transactions.length,
-      complete: transactions.length // All transactions are complete now
-    };
-  }, [dashboardData]);
-
-  // Helper functions
+  // Get shop name for display
   const getShopNameForDisplay = () => {
     if (filters.shop === 'all') return 'All Shops';
     const foundShop = shops.find(s => s._id === filters.shop);
     return foundShop?.name || 'Selected Shop';
   };
 
-  // Format number without abbreviation
+  // Format full number
   const formatFullNumber = (num) => {
     if (typeof num !== 'number') return '0';
     return new Intl.NumberFormat('en-US', {
@@ -583,76 +922,101 @@ const TransactionsReport = ({ currentUser }) => {
     }).format(num);
   };
 
-  // Table columns - RESPONSIVE FOR MOBILE
+  // Responsive table columns
   const columns = useMemo(() => {
     const baseColumns = [
       {
-        title: 'ID',
+        title: 'Transaction ID',
         dataIndex: '_id',
         key: 'transactionId',
         render: (id, record) => (
           <Tooltip title={id}>
             <Text code style={{ 
               cursor: 'pointer',
-              fontSize: screens.xs ? '10px' : '12px',
+              fontSize: isMobile ? '10px' : '12px',
               fontWeight: 'bold'
             }}>
               {record.transactionNumber || (id ? `${id.substring(0, 6)}...` : 'N/A')}
             </Text>
           </Tooltip>
         ),
-        width: screens.xs ? 80 : 100,
+        width: isMobile ? 80 : 120,
         fixed: 'left',
-        responsive: ['xs', 'sm']
+        responsive: ['xs', 'sm', 'md', 'lg']
       },
       {
-        title: 'Date',
+        title: 'Date & Time',
         dataIndex: 'saleDate',
         key: 'date',
-        render: (date, record) => (
+        render: (date) => (
           <div>
-            <div style={{ fontSize: screens.xs ? '10px' : '12px', fontWeight: '500' }}>
-              {dayjs(date).format('DD/MM')}
+            <div style={{ fontSize: isMobile ? '10px' : '12px', fontWeight: '500' }}>
+              {dayjs(date).format('DD/MM/YYYY')}
             </div>
-            <div style={{ fontSize: screens.xs ? '9px' : '10px', color: '#666' }}>
+            <div style={{ fontSize: isMobile ? '9px' : '10px', color: '#666' }}>
               {dayjs(date).format('HH:mm')}
             </div>
           </div>
         ),
-        width: screens.xs ? 70 : 90,
+        width: isMobile ? 80 : 130,
         sorter: (a, b) => new Date(a.saleDate) - new Date(b.saleDate),
-        responsive: ['xs', 'sm', 'md']
+        responsive: ['xs', 'sm', 'md', 'lg']
       },
       {
         title: 'Customer',
         dataIndex: 'customerName',
         key: 'customerName',
         render: (name) => (
-          <Text ellipsis style={{ fontSize: screens.xs ? '11px' : '13px' }}>
+          <Text ellipsis style={{ fontSize: isMobile ? '11px' : '13px' }}>
             {name || 'Walk-in'}
           </Text>
         ),
-        width: screens.xs ? 80 : 100,
-        responsive: ['xs', 'sm', 'md']
+        width: isMobile ? 80 : 120,
+        responsive: ['xs', 'sm', 'md', 'lg']
+      },
+      {
+        title: 'Shop',
+        dataIndex: 'shop',
+        key: 'shop',
+        render: (shop) => {
+          if (!shop) return <Text type="secondary">N/A</Text>;
+          if (typeof shop === 'string') return <Text>{shop}</Text>;
+          if (typeof shop === 'object') return <Text>{shop.name || 'Unknown'}</Text>;
+          return <Text type="secondary">N/A</Text>;
+        },
+        width: 120,
+        responsive: ['md', 'lg']
+      },
+      {
+        title: 'Cashier',
+        dataIndex: 'cashierName',
+        key: 'cashierName',
+        render: (name) => (
+          <Text ellipsis style={{ fontSize: isMobile ? '11px' : '13px' }}>
+            {name || 'Unknown'}
+          </Text>
+        ),
+        width: 100,
+        responsive: ['md', 'lg']
       },
       {
         title: 'Type',
         key: 'transactionType',
-        width: screens.xs ? 70 : 90,
-        render: (_, record) => (
+        width: isMobile ? 70 : 90,
+        render: () => (
           <Tag 
             color="#10b981"
             style={{ 
-              fontSize: screens.xs ? '9px' : '11px',
+              fontSize: isMobile ? '9px' : '11px',
               fontWeight: 'bold',
               margin: 0,
-              padding: screens.xs ? '2px 6px' : '4px 8px'
+              padding: isMobile ? '2px 6px' : '4px 8px'
             }}
           >
             COMPLETE
           </Tag>
         ),
-        responsive: ['xs', 'sm', 'md']
+        responsive: ['xs', 'sm', 'md', 'lg']
       },
       {
         title: 'Amount',
@@ -661,8 +1025,8 @@ const TransactionsReport = ({ currentUser }) => {
         render: (amount) => (
           <div>
             <Text strong style={{ 
-              color: '#2563eb',
-              fontSize: screens.xs ? '12px' : '14px',
+              color: colors.primary,
+              fontSize: isMobile ? '12px' : '14px',
               fontWeight: '600'
             }}>
               {CalculationUtils.formatCurrency(amount)}
@@ -670,7 +1034,7 @@ const TransactionsReport = ({ currentUser }) => {
           </div>
         ),
         sorter: (a, b) => (a.totalAmount || 0) - (b.totalAmount || 0),
-        width: screens.xs ? 90 : 110,
+        width: isMobile ? 90 : 110,
         responsive: ['xs', 'sm', 'md', 'lg']
       },
       {
@@ -680,14 +1044,14 @@ const TransactionsReport = ({ currentUser }) => {
         render: (profit) => (
           <Text strong style={{ 
             color: CalculationUtils.getProfitColor(profit),
-            fontSize: screens.xs ? '12px' : '14px',
+            fontSize: isMobile ? '12px' : '14px',
             fontWeight: '600'
           }}>
             {CalculationUtils.formatCurrency(profit || 0)}
           </Text>
         ),
         sorter: (a, b) => (a.profit || 0) - (b.profit || 0),
-        width: screens.xs ? 90 : 110,
+        width: isMobile ? 90 : 110,
         responsive: ['md', 'lg']
       },
       {
@@ -696,25 +1060,25 @@ const TransactionsReport = ({ currentUser }) => {
         key: 'profitMargin',
         render: (margin) => (
           <Text strong style={{ 
-            color: '#059669',
-            fontSize: screens.xs ? '11px' : '13px',
+            color: colors.success,
+            fontSize: isMobile ? '11px' : '13px',
             fontWeight: '600'
           }}>
             {CalculationUtils.safeNumber(margin, 0).toFixed(1)}%
           </Text>
         ),
-        width: screens.xs ? 70 : 80,
+        width: isMobile ? 70 : 80,
         responsive: ['md', 'lg']
       },
       {
         title: 'Payment',
         key: 'paymentMethod',
-        width: screens.xs ? 100 : 120,
+        width: isMobile ? 100 : 120,
         render: (_, record) => (
           <Tag 
             color={PAYMENT_METHOD_CONFIG[record.paymentMethod]?.color || '#6b7280'}
             style={{ 
-              fontSize: screens.xs ? '9px' : '11px',
+              fontSize: isMobile ? '9px' : '11px',
               marginBottom: 2
             }}
           >
@@ -726,15 +1090,20 @@ const TransactionsReport = ({ currentUser }) => {
       {
         title: 'Actions',
         key: 'actions',
-        width: screens.xs ? 60 : 80,
+        width: isMobile ? 60 : 80,
         fixed: 'right',
         render: (_, record) => (
           <Button
-            type="link"
-            icon={<EyeOutlined style={{ fontSize: screens.xs ? '14px' : '16px' }} />}
+            type="primary"
+            icon={<EyeOutlined style={{ fontSize: isMobile ? '14px' : '16px' }} />}
             onClick={() => handleViewTransaction(record)}
             size="small"
-            style={{ padding: screens.xs ? '2px 4px' : '4px 8px' }}
+            style={{ 
+              padding: isMobile ? '2px 4px' : '4px 8px',
+              background: colors.primary,
+              border: 'none',
+              borderRadius: '6px'
+            }}
             title="View Details"
           />
         )
@@ -742,33 +1111,32 @@ const TransactionsReport = ({ currentUser }) => {
     ];
 
     // For mobile, show minimal columns
-    if (screens.xs) {
+    if (isMobile) {
       return baseColumns.filter(col => 
         col.responsive?.includes('xs') || col.fixed
       );
     }
 
     return baseColumns;
-  }, [screens, shops, handleViewTransaction]);
+  }, [isMobile, colors, handleViewTransaction]);
 
-  // UPDATED: Financial Overview Component with 24px numbers and 15px bold titles
+  // Financial Overview Component
   const FinancialOverview = () => {
     const safeStats = dashboardData?.financialStats || CalculationUtils.getDefaultStats();
-    
-    const hasData = safeStats.totalTransactions > 0 || safeStats.totalRevenue > 0;
+    const hasData = safeStats.totalSales > 0 || safeStats.totalRevenue > 0;
 
-    // UPDATED COLOR SCHEME - Light backgrounds with dark text for better visibility
+    // Stat card colors
     const statCardColors = [
-      { bg: '#e0f2fe', border: '#bae6fd', title: '#0369a1', value: '#0c4a6e' }, // Blue
-      { bg: '#f0f9ff', border: '#7dd3fc', title: '#0ea5e9', value: '#0369a1' }, // Light Blue
-      { bg: '#fef3c7', border: '#fcd34d', title: '#d97706', value: '#92400e' }, // Amber
-      { bg: '#dcfce7', border: '#86efac', title: '#16a34a', value: '#166534' }, // Green
-      { bg: '#fee2e2', border: '#fca5a5', title: '#dc2626', value: '#991b1b' }, // Red
-      { bg: '#f5f3ff', border: '#c4b5fd', title: '#7c3aed', value: '#5b21b6' }, // Purple
-      { bg: '#fef9c3', border: '#fde047', title: '#ca8a04', value: '#854d0e' }, // Yellow
-      { bg: '#fce7f3', border: '#f9a8d4', title: '#db2777', value: '#9d174d' }, // Pink
-      { bg: '#ecfdf5', border: '#a7f3d0', title: '#10b981', value: '#065f46' }, // Emerald
-      { bg: '#f1f5f9', border: '#cbd5e1', title: '#64748b', value: '#334155' }  // Gray
+      { bg: '#e0f2fe', border: '#bae6fd', title: '#0369a1', value: '#0c4a6e' },
+      { bg: '#f0f9ff', border: '#7dd3fc', title: '#0ea5e9', value: '#0369a1' },
+      { bg: '#fef3c7', border: '#fcd34d', title: '#d97706', value: '#92400e' },
+      { bg: '#dcfce7', border: '#86efac', title: '#16a34a', value: '#166534' },
+      { bg: '#fee2e2', border: '#fca5a5', title: '#dc2626', value: '#991b1b' },
+      { bg: '#f5f3ff', border: '#c4b5fd', title: '#7c3aed', value: '#5b21b6' },
+      { bg: '#fef9c3', border: '#fde047', title: '#ca8a04', value: '#854d0e' },
+      { bg: '#fce7f3', border: '#f9a8d4', title: '#db2777', value: '#9d174d' },
+      { bg: '#ecfdf5', border: '#a7f3d0', title: '#10b981', value: '#065f46' },
+      { bg: '#f1f5f9', border: '#cbd5e1', title: '#64748b', value: '#334155' }
     ];
 
     const StatCard = ({ title, value, prefix = "KES", description, colorIndex = 0 }) => {
@@ -785,30 +1153,27 @@ const TransactionsReport = ({ currentUser }) => {
               textAlign: 'center',
               boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
               marginBottom: '12px',
-              minHeight: screens.xs ? '120px' : '140px', // Adjusted for mobile
+              minHeight: isMobile ? '120px' : '140px',
               display: 'flex',
               flexDirection: 'column',
               justifyContent: 'center',
-              // Added for mobile touch compatibility
               touchAction: 'manipulation',
               WebkitTapHighlightColor: 'transparent'
             }}
             bodyStyle={{ 
-              padding: screens.xs ? '14px 10px' : '16px',
+              padding: isMobile ? '14px 10px' : '16px',
               flex: 1,
               display: 'flex',
               flexDirection: 'column',
               justifyContent: 'center',
-              // Prevent text overflow on mobile
               overflow: 'hidden'
             }}
           >
-            <div style={{ marginBottom: screens.xs ? '6px' : '8px' }}>
-              {/* UPDATED: Title with 15px font and bold weight */}
+            <div style={{ marginBottom: isMobile ? '6px' : '8px' }}>
               <Text style={{ 
                 color: color.title,
-                fontSize: screens.xs ? '13px' : '15px', // 15px as requested
-                fontWeight: '700', // Bolder as requested
+                fontSize: isMobile ? '13px' : '15px',
+                fontWeight: '700',
                 textTransform: 'uppercase',
                 letterSpacing: '0.5px',
                 display: 'block',
@@ -818,15 +1183,13 @@ const TransactionsReport = ({ currentUser }) => {
               </Text>
             </div>
             
-            {/* UPDATED: Value with 24px font */}
             <div style={{ 
               color: color.value,
-              fontSize: screens.xs ? '18px' : '24px', // 24px as requested
+              fontSize: isMobile ? '18px' : '24px',
               fontWeight: '700',
               lineHeight: '1.2',
               marginBottom: '4px',
-              // Ensure numbers are visible on mobile
-              textShadow: screens.xs ? '0 1px 1px rgba(0,0,0,0.1)' : 'none'
+              textShadow: isMobile ? '0 1px 1px rgba(0,0,0,0.1)' : 'none'
             }}>
               {prefix} {formatFullNumber(value)}
             </div>
@@ -834,7 +1197,7 @@ const TransactionsReport = ({ currentUser }) => {
             {description && (
               <Text style={{ 
                 color: '#6b7280',
-                fontSize: screens.xs ? '9px' : '11px',
+                fontSize: isMobile ? '9px' : '11px',
                 opacity: 0.9,
                 lineHeight: '1.2',
                 display: 'block',
@@ -847,7 +1210,7 @@ const TransactionsReport = ({ currentUser }) => {
             {!hasData && value === 0 && (
               <Text style={{ 
                 color: '#9ca3af',
-                fontSize: screens.xs ? '9px' : '10px',
+                fontSize: isMobile ? '9px' : '10px',
                 fontStyle: 'italic',
                 marginTop: '4px'
               }}>
@@ -860,48 +1223,28 @@ const TransactionsReport = ({ currentUser }) => {
     };
 
     return (
-      <Card 
-        title={
-          <Space>
-            <DollarOutlined style={{ color: '#2563eb' }} />
-            <Text strong style={{ 
-              fontSize: screens.xs ? '16px' : '18px',
-              fontWeight: '600'
-            }}>Financial Overview</Text>
-            {loading && <Spin size="small" />}
-            {!hasData && !loading && <Tag color="#f59e0b">No Data</Tag>}
-          </Space>
-        } 
-        style={{ 
-          marginBottom: 24,
-          borderRadius: '16px',
-          boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
-          border: '1px solid #e5e7eb',
-          background: 'linear-gradient(135deg, #ffffff 0%, #f9fafb 100%)',
-          // Mobile optimization
-          overflow: 'hidden'
-        }}
-        loading={loading}
+      <DeviceAwareCard 
+        title="Financial Overview"
         extra={
-          <Tag color="#3b82f6" style={{ 
-            fontSize: screens.xs ? '11px' : '12px',
+          <Tag color={colors.primary} style={{ 
+            fontSize: isMobile ? '11px' : '12px',
             fontWeight: '500'
           }}>
             {getShopNameForDisplay()}
           </Tag>
         }
+        loading={loading}
       >
         {!hasData && !loading && (
           <Alert
             message="No Transaction Data Available"
             description={
-              <div style={{ fontSize: screens.xs ? '12px' : '14px' }}>
-                <p>No transactions found for the selected filters. This could be because:</p>
+              <div style={{ fontSize: isMobile ? '12px' : '14px' }}>
+                <p>No transactions found for the selected filters.</p>
                 <ul>
                   <li>No transactions have been created yet</li>
                   <li>The selected date range has no transactions</li>
                   <li>The selected shop has no transactions</li>
-                  <li>All transactions are in "pending" status</li>
                 </ul>
               </div>
             }
@@ -910,153 +1253,343 @@ const TransactionsReport = ({ currentUser }) => {
             style={{ 
               marginBottom: 16, 
               borderRadius: '12px',
-              fontSize: screens.xs ? '12px' : '14px'
+              fontSize: isMobile ? '12px' : '14px'
             }}
           />
         )}
 
-        <Row gutter={[screens.xs ? 8 : 16, screens.xs ? 8 : 16]} justify="center">
-          {/* First Row - Core Metrics */}
-          <StatCard 
-            title="Total Sales" 
-            value={safeStats.totalSales} 
-            colorIndex={0}
-            description={`${safeStats.totalTransactions || 0} transactions`} 
-          />
-          
-          <StatCard 
-            title="Total Revenue" 
-            value={safeStats.totalRevenue} 
-            colorIndex={1}
-            description="All completed sales" 
-          />
-
-          {/* Second Row - Profit & Expenses */}
-          <StatCard 
-            title="Expenses" 
-            value={safeStats.totalExpenses} 
-            colorIndex={2}
-            description="Operational costs" 
-          />
-          
-          <StatCard 
-            title="Gross Profit" 
-            value={safeStats.grossProfit} 
-            colorIndex={3}
-            description="Revenue - COGS" 
-          />
-          
-          <StatCard 
-            title="Net Profit" 
-            value={safeStats.netProfit} 
-            colorIndex={4}
-            description="After all expenses" 
-          />
-          
-          <StatCard 
-            title="Cost of Goods" 
-            value={safeStats.costOfGoodsSold} 
-            colorIndex={5}
-            description="Total COGS" 
-          />
-
-          {/* Third Row - Payment Methods */}
-          <StatCard 
-            title="Total Mpesa/Bank" 
-            value={safeStats.totalMpesaBank} 
-            colorIndex={6}
-            description="Digital payments" 
-          />
-          
-          <StatCard 
-            title="Total Cash" 
-            value={safeStats.totalCash} 
-            colorIndex={7}
-            description="Cash payments" 
-          />
-          
-          <StatCard 
-            title="Profit Margin" 
-            value={safeStats.profitMargin} 
-            colorIndex={8}
-            prefix=""
-            suffix="%"
-            description="Net profit margin" 
-          />
-          
-          <StatCard 
-            title="Avg Transaction" 
-            value={safeStats.totalSales > 0 ? safeStats.totalRevenue / safeStats.totalSales : 0} 
-            colorIndex={9}
-            description="Average sale value" 
-          />
+        <Row gutter={[layoutConfig.gap, layoutConfig.gap]} justify="center">
+          <StatCard title="Total Sales" value={safeStats.totalSales} colorIndex={0} description={`${safeStats.totalSales || 0} transactions`} />
+          <StatCard title="Total Revenue" value={safeStats.totalRevenue} colorIndex={1} description="All completed sales" />
+          <StatCard title="Expenses" value={safeStats.totalExpenses} colorIndex={2} description="Operational costs" />
+          <StatCard title="Gross Profit" value={safeStats.grossProfit} colorIndex={3} description="Revenue - COGS" />
+          <StatCard title="Net Profit" value={safeStats.netProfit} colorIndex={4} description="After all expenses" />
+          <StatCard title="Cost of Goods" value={safeStats.costOfGoodsSold} colorIndex={5} description="Total COGS" />
+          <StatCard title="Total Mpesa/Bank" value={safeStats.totalMpesaBank} colorIndex={6} description="Digital payments" />
+          <StatCard title="Total Cash" value={safeStats.totalCash} colorIndex={7} description="Cash payments" />
+          <StatCard title="Profit Margin" value={safeStats.profitMargin} colorIndex={8} prefix="" suffix="%" description="Net profit margin" />
+          <StatCard title="Avg Transaction" value={safeStats.totalSales > 0 ? safeStats.totalRevenue / safeStats.totalSales : 0} colorIndex={9} description="Average sale value" />
         </Row>
-      </Card>
+      </DeviceAwareCard>
     );
   };
 
-  // Performance List Component - RESPONSIVE
-  const PerformanceList = ({ data, title, icon, loading, renderItem, emptyDescription }) => (
-    <Card 
-      title={
-        <Space>
-          {React.cloneElement(icon, { style: { color: '#2563eb', fontSize: screens.xs ? '14px' : '16px' } })}
-          <Text strong style={{ 
-            fontSize: screens.xs ? '14px' : '16px',
-            fontWeight: '600'
-          }}>{title}</Text>
-          <Badge count={data.length} showZero color="#2563eb" style={{ fontSize: screens.xs ? '10px' : '12px' }} />
-        </Space>
-      } 
-      style={{ 
-        marginBottom: 24,
-        borderRadius: '16px',
-        boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
-        border: '1px solid #e5e7eb',
-        // Mobile optimization
-        overflow: 'hidden'
-      }}
-      loading={loading}
-    >
-      {data.length > 0 ? (
-        <List 
-          dataSource={data} 
-          renderItem={renderItem}
-          grid={screens.xs ? { gutter: 16, column: 1 } : { gutter: 16, column: 1 }}
-        />
-      ) : (
-        <Empty 
-          description={
-            <Text style={{ color: '#6b7280', fontSize: screens.xs ? '12px' : '14px' }}>
-              {emptyDescription}
-            </Text>
-          }
-          imageStyle={{ height: screens.xs ? 60 : 80 }}
-        />
-      )}
-    </Card>
-  );
+  // Payment Composition Component
+  const PaymentComposition = () => {
+    const safeStats = dashboardData?.financialStats || CalculationUtils.getDefaultStats();
+    const totalAmount = (safeStats.totalCash || 0) + (safeStats.totalMpesaBank || 0);
+    const cashPercentage = totalAmount > 0 ? ((safeStats.totalCash || 0) / totalAmount * 100) : 0;
+    const digitalPercentage = totalAmount > 0 ? ((safeStats.totalMpesaBank || 0) / totalAmount * 100) : 0;
 
-  // Cashier Performance Component - RESPONSIVE
-  const CashierPerformance = () => {
-    const renderCashierItem = (cashier, index) => (
+    return (
+      <DeviceAwareCard title="Payment Composition">
+        <Row gutter={[layoutConfig.gap, layoutConfig.gap]}>
+          <Col xs={24} md={12}>
+            <Card
+              style={{ 
+                height: '100%',
+                background: `linear-gradient(135deg, ${colors.success}15, ${colors.success}08)`,
+                borderRadius: '12px',
+                border: `1px solid ${colors.success}20`,
+              }}
+              bodyStyle={{ padding: '20px' }}
+            >
+              <Flex vertical gap="middle">
+                <Flex justify="space-between" align="center">
+                  <Flex align="center" gap="small">
+                    <div style={{
+                      background: `${colors.success}20`,
+                      borderRadius: '8px',
+                      padding: '8px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}>
+                      <MoneyCollectOutlined style={{ color: colors.success, fontSize: '20px' }} />
+                    </div>
+                    <div>
+                      <Text strong style={{ fontSize: '16px', color: token.colorTextHeading }}>
+                        Cash Payments
+                      </Text>
+                    </div>
+                  </Flex>
+                  <Tag color="green" style={{ fontSize: '12px', fontWeight: '500' }}>
+                    {cashPercentage.toFixed(1)}%
+                  </Tag>
+                </Flex>
+                
+                <Text strong style={{ 
+                  fontSize: isMobile ? '24px' : '28px', 
+                  color: colors.success,
+                  textAlign: 'center'
+                }}>
+                  {CalculationUtils.formatCurrency(safeStats.totalCash || 0)}
+                </Text>
+                
+                <Progress 
+                  percent={cashPercentage} 
+                  strokeColor={colors.success}
+                  strokeWidth={8}
+                  showInfo={false}
+                />
+              </Flex>
+            </Card>
+          </Col>
+          
+          <Col xs={24} md={12}>
+            <Card
+              style={{ 
+                height: '100%',
+                background: `linear-gradient(135deg, ${colors.primary}15, ${colors.primary}08)`,
+                borderRadius: '12px',
+                border: `1px solid ${colors.primary}20`,
+              }}
+              bodyStyle={{ padding: '20px' }}
+            >
+              <Flex vertical gap="middle">
+                <Flex justify="space-between" align="center">
+                  <Flex align="center" gap="small">
+                    <div style={{
+                      background: `${colors.primary}20`,
+                      borderRadius: '8px',
+                      padding: '8px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}>
+                      <BankOutlined style={{ color: colors.primary, fontSize: '20px' }} />
+                    </div>
+                    <div>
+                      <Text strong style={{ fontSize: '16px', color: token.colorTextHeading }}>
+                        M-Pesa/Bank Payments
+                      </Text>
+                    </div>
+                  </Flex>
+                  <Tag color="blue" style={{ fontSize: '12px', fontWeight: '500' }}>
+                    {digitalPercentage.toFixed(1)}%
+                  </Tag>
+                </Flex>
+                
+                <Text strong style={{ 
+                  fontSize: isMobile ? '24px' : '28px', 
+                  color: colors.primary,
+                  textAlign: 'center'
+                }}>
+                  {CalculationUtils.formatCurrency(safeStats.totalMpesaBank || 0)}
+                </Text>
+                
+                <Progress 
+                  percent={digitalPercentage} 
+                  strokeColor={colors.primary}
+                  strokeWidth={8}
+                  showInfo={false}
+                />
+              </Flex>
+            </Card>
+          </Col>
+        </Row>
+
+        {totalAmount > 0 && (
+          <div style={{ 
+            textAlign: 'center', 
+            marginTop: '20px',
+            padding: '12px',
+            backgroundColor: `${colors.primary}08`,
+            borderRadius: '8px'
+          }}>
+            <Text type="secondary">
+              {safeStats.totalCash > safeStats.totalMpesaBank ? (
+                <>Cash payments are <Text strong style={{ color: colors.success }}>{(cashPercentage - digitalPercentage).toFixed(1)}% higher</Text> than digital payments</>
+              ) : safeStats.totalMpesaBank > safeStats.totalCash ? (
+                <>Digital payments are <Text strong style={{ color: colors.primary }}>{(digitalPercentage - cashPercentage).toFixed(1)}% higher</Text> than cash payments</>
+              ) : (
+                <>Cash and digital payments are balanced</>
+              )}
+            </Text>
+          </div>
+        )}
+      </DeviceAwareCard>
+    );
+  };
+
+  // Shop Performance Component
+  const ShopPerformance = () => {
+    const renderShopItem = (shop, index) => (
       <List.Item style={{ 
-        padding: screens.xs ? '12px 8px' : '16px 20px', 
+        padding: isMobile ? '12px 8px' : '16px 20px', 
         borderBottom: '1px solid #f3f4f6',
-        // Mobile touch optimization
         touchAction: 'manipulation'
       }}>
         <div style={{ width: '100%' }}>
-          <Row gutter={[16, 16]} align="middle" style={{ marginBottom: screens.xs ? 8 : 12 }}>
+          <Row gutter={[16, 16]} align="middle" style={{ marginBottom: isMobile ? 8 : 12 }}>
             <Col flex="none">
-              <Badge count={index + 1} offset={[-5, 5]} color={index < 3 ? '#2563eb' : '#9ca3af'}>
+              <Badge count={index + 1} offset={[-5, 5]} color={index < 3 ? colors.primary : '#9ca3af'}>
                 <Avatar 
                   style={{ 
-                    backgroundColor: index < 3 ? '#3b82f6' : '#d1d5db',
+                    backgroundColor: index < 3 ? colors.primary : '#d1d5db',
                     color: '#ffffff',
-                    fontSize: screens.xs ? '14px' : '16px',
-                    width: screens.xs ? 36 : 40,
-                    height: screens.xs ? 36 : 40
+                    fontSize: isMobile ? '14px' : '16px',
+                    width: isMobile ? 36 : 40,
+                    height: isMobile ? 36 : 40
+                  }}
+                  icon={<ShopOutlined />}
+                />
+              </Badge>
+            </Col>
+            <Col flex="auto">
+              <Space direction="vertical" size={0} style={{ width: '100%' }}>
+                <Row justify="space-between" align="middle">
+                  <Text strong style={{ 
+                    fontSize: isMobile ? '13px' : '15px',
+                    color: '#1f2937',
+                    fontWeight: '600'
+                  }}>
+                    {shop.name}
+                  </Text>
+                  {index < 3 && (
+                    <Tag color="#fbbf24" style={{ 
+                      fontSize: isMobile ? '9px' : '10px',
+                      padding: isMobile ? '1px 4px' : '2px 6px',
+                      fontWeight: '500'
+                    }}>
+                      Top
+                    </Tag>
+                  )}
+                </Row>
+                <Space size={8} wrap>
+                  <Tag color={colors.primary} style={{ fontSize: isMobile ? '9px' : '10px' }}>
+                    {shop.transactions} transactions
+                  </Tag>
+                </Space>
+              </Space>
+            </Col>
+          </Row>
+          
+          <Row gutter={[12, 12]} style={{ marginTop: isMobile ? 8 : 12 }}>
+            <Col xs={12} sm={8}>
+              <div style={{ 
+                background: '#eff6ff',
+                padding: isMobile ? '8px' : '10px',
+                borderRadius: '8px',
+                textAlign: 'center',
+                minHeight: isMobile ? '70px' : 'auto'
+              }}>
+                <Text type="secondary" style={{ 
+                  fontSize: isMobile ? '9px' : '10px',
+                  display: 'block',
+                  marginBottom: 4
+                }}>
+                  Revenue
+                </Text>
+                <Text strong style={{ 
+                  color: colors.primary,
+                  fontSize: isMobile ? '14px' : '16px',
+                  fontWeight: '600'
+                }}>
+                  {CalculationUtils.formatCurrency(shop.revenue)}
+                </Text>
+              </div>
+            </Col>
+            
+            <Col xs={12} sm={8}>
+              <div style={{ 
+                background: '#f0f9ff',
+                padding: isMobile ? '8px' : '10px',
+                borderRadius: '8px',
+                textAlign: 'center',
+                minHeight: isMobile ? '70px' : 'auto'
+              }}>
+                <Text type="secondary" style={{ 
+                  fontSize: isMobile ? '9px' : '10px',
+                  display: 'block',
+                  marginBottom: 4
+                }}>
+                  Transactions
+                </Text>
+                <Text strong style={{ 
+                  color: colors.cyan,
+                  fontSize: isMobile ? '14px' : '16px',
+                  fontWeight: '600'
+                }}>
+                  {shop.transactions}
+                </Text>
+              </div>
+            </Col>
+            
+            <Col xs={12} sm={8}>
+              <div style={{ 
+                background: '#fefce8',
+                padding: isMobile ? '8px' : '10px',
+                borderRadius: '8px',
+                textAlign: 'center',
+                minHeight: isMobile ? '70px' : 'auto'
+              }}>
+                <Text type="secondary" style={{ 
+                  fontSize: isMobile ? '9px' : '10px',
+                  display: 'block',
+                  marginBottom: 4
+                }}>
+                  Margin
+                </Text>
+                <Text strong style={{ 
+                  color: colors.success,
+                  fontSize: isMobile ? '14px' : '16px',
+                  fontWeight: '600'
+                }}>
+                  {shop.profitMargin?.toFixed(1) || '0.0'}%
+                </Text>
+              </div>
+            </Col>
+          </Row>
+        </div>
+      </List.Item>
+    );
+
+    return (
+      <DeviceAwareCard
+        title="Shop Performance"
+        extra={<Badge count={dashboardData.shopPerformance?.length || 0} showZero color={colors.primary} />}
+        loading={loading}
+      >
+        {dashboardData.shopPerformance?.length > 0 ? (
+          <List 
+            dataSource={dashboardData.shopPerformance} 
+            renderItem={renderShopItem}
+            pagination={{ 
+              pageSize: isMobile ? 3 : 5,
+              size: isMobile ? 'small' : 'default',
+              simple: isMobile
+            }}
+          />
+        ) : (
+          <Empty 
+            description="No shop performance data available"
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+          />
+        )}
+      </DeviceAwareCard>
+    );
+  };
+
+  // Cashier Performance Component
+  const CashierPerformance = () => {
+    const renderCashierItem = (cashier, index) => (
+      <List.Item style={{ 
+        padding: isMobile ? '12px 8px' : '16px 20px', 
+        borderBottom: '1px solid #f3f4f6',
+        touchAction: 'manipulation'
+      }}>
+        <div style={{ width: '100%' }}>
+          <Row gutter={[16, 16]} align="middle" style={{ marginBottom: isMobile ? 8 : 12 }}>
+            <Col flex="none">
+              <Badge count={index + 1} offset={[-5, 5]} color={index < 3 ? colors.primary : '#9ca3af'}>
+                <Avatar 
+                  style={{ 
+                    backgroundColor: index < 3 ? colors.primary : '#d1d5db',
+                    color: '#ffffff',
+                    fontSize: isMobile ? '14px' : '16px',
+                    width: isMobile ? 36 : 40,
+                    height: isMobile ? 36 : 40
                   }}
                   icon={<UserOutlined />}
                 >
@@ -1068,7 +1601,7 @@ const TransactionsReport = ({ currentUser }) => {
               <Space direction="vertical" size={0} style={{ width: '100%' }}>
                 <Row justify="space-between" align="middle">
                   <Text strong style={{ 
-                    fontSize: screens.xs ? '13px' : '15px',
+                    fontSize: isMobile ? '13px' : '15px',
                     color: '#1f2937',
                     fontWeight: '600'
                   }}>
@@ -1076,17 +1609,17 @@ const TransactionsReport = ({ currentUser }) => {
                   </Text>
                   {index < 3 && (
                     <Tag color="#fbbf24" style={{ 
-                      fontSize: screens.xs ? '9px' : '10px',
-                      padding: screens.xs ? '1px 4px' : '2px 6px',
+                      fontSize: isMobile ? '9px' : '10px',
+                      padding: isMobile ? '1px 4px' : '2px 6px',
                       fontWeight: '500'
                     }}>
                       Top
                     </Tag>
                   )}
                 </Row>
-                <Tag color="#60a5fa" style={{ 
-                  fontSize: screens.xs ? '9px' : '10px',
-                  padding: screens.xs ? '1px 4px' : '2px 6px'
+                <Tag color={colors.primary} style={{ 
+                  fontSize: isMobile ? '9px' : '10px',
+                  padding: isMobile ? '1px 4px' : '2px 6px'
                 }}>
                   {cashier.transactions} transactions
                 </Tag>
@@ -1094,26 +1627,25 @@ const TransactionsReport = ({ currentUser }) => {
             </Col>
           </Row>
           
-          <Row gutter={[12, 12]} style={{ marginTop: screens.xs ? 8 : 12 }}>
+          <Row gutter={[12, 12]} style={{ marginTop: isMobile ? 8 : 12 }}>
             <Col xs={12} sm={8}>
               <div style={{ 
                 background: '#eff6ff',
-                padding: screens.xs ? '8px' : '10px',
+                padding: isMobile ? '8px' : '10px',
                 borderRadius: '8px',
                 textAlign: 'center',
-                // Mobile touch optimization
-                minHeight: screens.xs ? '70px' : 'auto'
+                minHeight: isMobile ? '70px' : 'auto'
               }}>
                 <Text type="secondary" style={{ 
-                  fontSize: screens.xs ? '9px' : '10px',
+                  fontSize: isMobile ? '9px' : '10px',
                   display: 'block',
                   marginBottom: 4
                 }}>
                   Revenue
                 </Text>
                 <Text strong style={{ 
-                  color: '#2563eb',
-                  fontSize: screens.xs ? '14px' : '16px',
+                  color: colors.primary,
+                  fontSize: isMobile ? '14px' : '16px',
                   fontWeight: '600'
                 }}>
                   {CalculationUtils.formatCurrency(cashier.revenue)}
@@ -1124,13 +1656,13 @@ const TransactionsReport = ({ currentUser }) => {
             <Col xs={12} sm={8}>
               <div style={{ 
                 background: '#f0fdf4',
-                padding: screens.xs ? '8px' : '10px',
+                padding: isMobile ? '8px' : '10px',
                 borderRadius: '8px',
                 textAlign: 'center',
-                minHeight: screens.xs ? '70px' : 'auto'
+                minHeight: isMobile ? '70px' : 'auto'
               }}>
                 <Text type="secondary" style={{ 
-                  fontSize: screens.xs ? '9px' : '10px',
+                  fontSize: isMobile ? '9px' : '10px',
                   display: 'block',
                   marginBottom: 4
                 }}>
@@ -1138,7 +1670,7 @@ const TransactionsReport = ({ currentUser }) => {
                 </Text>
                 <Text strong style={{ 
                   color: CalculationUtils.getProfitColor(cashier.profit),
-                  fontSize: screens.xs ? '14px' : '16px',
+                  fontSize: isMobile ? '14px' : '16px',
                   fontWeight: '600'
                 }}>
                   {CalculationUtils.formatCurrency(cashier.profit)}
@@ -1149,24 +1681,24 @@ const TransactionsReport = ({ currentUser }) => {
             <Col xs={12} sm={8}>
               <div style={{ 
                 background: '#fefce8',
-                padding: screens.xs ? '8px' : '10px',
+                padding: isMobile ? '8px' : '10px',
                 borderRadius: '8px',
                 textAlign: 'center',
-                minHeight: screens.xs ? '70px' : 'auto'
+                minHeight: isMobile ? '70px' : 'auto'
               }}>
                 <Text type="secondary" style={{ 
-                  fontSize: screens.xs ? '9px' : '10px',
+                  fontSize: isMobile ? '9px' : '10px',
                   display: 'block',
                   marginBottom: 4
                 }}>
                   Margin
                 </Text>
                 <Text strong style={{ 
-                  color: '#059669',
-                  fontSize: screens.xs ? '14px' : '16px',
+                  color: colors.success,
+                  fontSize: isMobile ? '14px' : '16px',
                   fontWeight: '600'
                 }}>
-                  {cashier.profitMargin.toFixed(1)}%
+                  {cashier.profitMargin?.toFixed(1) || '0.0'}%
                 </Text>
               </div>
             </Col>
@@ -1176,205 +1708,72 @@ const TransactionsReport = ({ currentUser }) => {
     );
 
     return (
-      <PerformanceList
-        data={dashboardData.cashierPerformance || []}
+      <DeviceAwareCard
         title="Cashier Performance"
-        icon={<UserOutlined />}
+        extra={<Badge count={dashboardData.cashierPerformance?.length || 0} showZero color={colors.primary} />}
         loading={loading}
-        renderItem={renderCashierItem}
-        emptyDescription="No cashier performance data available"
-      />
+      >
+        {dashboardData.cashierPerformance?.length > 0 ? (
+          <List 
+            dataSource={dashboardData.cashierPerformance} 
+            renderItem={renderCashierItem}
+            pagination={{ 
+              pageSize: isMobile ? 3 : 5,
+              size: isMobile ? 'small' : 'default',
+              simple: isMobile
+            }}
+          />
+        ) : (
+          <Empty 
+            description="No cashier performance data available"
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+          />
+        )}
+      </DeviceAwareCard>
     );
   };
 
-  // Shop Performance Component - RESPONSIVE
-  const ShopPerformance = () => {
-    const renderShopItem = (shop, index) => (
-      <List.Item style={{ 
-        padding: screens.xs ? '12px 8px' : '16px 20px', 
-        borderBottom: '1px solid #f3f4f6',
-        touchAction: 'manipulation'
-      }}>
-        <div style={{ width: '100%' }}>
-          <Row gutter={[16, 16]} align="middle" style={{ marginBottom: screens.xs ? 8 : 12 }}>
-            <Col flex="none">
-              <Badge count={index + 1} offset={[-5, 5]} color={index < 3 ? '#2563eb' : '#9ca3af'}>
-                <Avatar 
-                  style={{ 
-                    backgroundColor: index < 3 ? '#3b82f6' : '#d1d5db',
-                    color: '#ffffff',
-                    fontSize: screens.xs ? '14px' : '16px',
-                    width: screens.xs ? 36 : 40,
-                    height: screens.xs ? 36 : 40
-                  }}
-                >
-                  {shop.name?.charAt(0)?.toUpperCase() || 'S'}
-                </Avatar>
-              </Badge>
-            </Col>
-            <Col flex="auto">
-              <Space direction="vertical" size={0} style={{ width: '100%' }}>
-                <Row justify="space-between" align="middle">
-                  <Text strong style={{ 
-                    fontSize: screens.xs ? '13px' : '15px',
-                    color: '#1f2937',
-                    fontWeight: '600'
-                  }}>
-                    {shop.name}
-                  </Text>
-                  {index < 3 && (
-                    <Tag color="#fbbf24" style={{ 
-                      fontSize: screens.xs ? '9px' : '10px',
-                      padding: screens.xs ? '1px 4px' : '2px 6px',
-                      fontWeight: '500'
-                    }}>
-                      Top
-                    </Tag>
-                  )}
-                </Row>
-                <Space size={8} wrap>
-                  <Tag color="#10b981" style={{ fontSize: screens.xs ? '9px' : '10px' }}>
-                    {shop.transactions} transactions
-                  </Tag>
-                </Space>
-              </Space>
-            </Col>
-          </Row>
-          
-          <Row gutter={[12, 12]} style={{ marginTop: screens.xs ? 8 : 12 }}>
-            <Col xs={12} sm={8}>
-              <div style={{ 
-                background: '#eff6ff',
-                padding: screens.xs ? '8px' : '10px',
-                borderRadius: '8px',
-                textAlign: 'center',
-                minHeight: screens.xs ? '70px' : 'auto'
-              }}>
-                <Text type="secondary" style={{ 
-                  fontSize: screens.xs ? '9px' : '10px',
-                  display: 'block',
-                  marginBottom: 4
-                }}>
-                  Revenue
-                </Text>
-                <Text strong style={{ 
-                  color: '#2563eb',
-                  fontSize: screens.xs ? '14px' : '16px',
-                  fontWeight: '600'
-                }}>
-                  {CalculationUtils.formatCurrency(shop.revenue)}
-                </Text>
-              </div>
-            </Col>
-            
-            <Col xs={12} sm={8}>
-              <div style={{ 
-                background: '#f0f9ff',
-                padding: screens.xs ? '8px' : '10px',
-                borderRadius: '8px',
-                textAlign: 'center',
-                minHeight: screens.xs ? '70px' : 'auto'
-              }}>
-                <Text type="secondary" style={{ 
-                  fontSize: screens.xs ? '9px' : '10px',
-                  display: 'block',
-                  marginBottom: 4
-                }}>
-                  Transactions
-                </Text>
-                <Text strong style={{ 
-                  color: '#0ea5e9',
-                  fontSize: screens.xs ? '14px' : '16px',
-                  fontWeight: '600'
-                }}>
-                  {shop.transactions}
-                </Text>
-              </div>
-            </Col>
-            
-            <Col xs={12} sm={8}>
-              <div style={{ 
-                background: '#fefce8',
-                padding: screens.xs ? '8px' : '10px',
-                borderRadius: '8px',
-                textAlign: 'center',
-                minHeight: screens.xs ? '70px' : 'auto'
-              }}>
-                <Text type="secondary" style={{ 
-                  fontSize: screens.xs ? '9px' : '10px',
-                  display: 'block',
-                  marginBottom: 4
-                }}>
-                  Margin
-                </Text>
-                <Text strong style={{ 
-                  color: '#059669',
-                  fontSize: screens.xs ? '14px' : '16px',
-                  fontWeight: '600'
-                }}>
-                  {shop.profitMargin.toFixed(1)}%
-                </Text>
-              </div>
-            </Col>
-          </Row>
-        </div>
-      </List.Item>
-    );
-
-    return (
-      <PerformanceList
-        data={dashboardData.shopPerformance || []}
-        title="Shop Performance"
-        icon={<ShopOutlined />}
-        loading={loading}
-        renderItem={renderShopItem}
-        emptyDescription="No shop performance data available"
-      />
-    );
-  };
-
-  // Product Performance Component - RESPONSIVE
+  // Product Performance Component
   const ProductPerformance = () => {
     const renderProductItem = (product, index) => (
       <List.Item style={{ 
-        padding: screens.xs ? '12px 8px' : '16px 20px', 
+        padding: isMobile ? '12px 8px' : '16px 20px', 
         borderBottom: '1px solid #f3f4f6',
         touchAction: 'manipulation'
       }}>
         <div style={{ width: '100%' }}>
-          <Row gutter={[16, 16]} align="middle" style={{ marginBottom: screens.xs ? 8 : 12 }}>
+          <Row gutter={[16, 16]} align="middle" style={{ marginBottom: isMobile ? 8 : 12 }}>
             <Col flex="none">
-              <Badge count={index + 1} offset={[-5, 5]} color={index < 3 ? '#2563eb' : '#9ca3af'}>
+              <Badge count={index + 1} offset={[-5, 5]} color={index < 3 ? colors.purple : '#9ca3af'}>
                 <Avatar 
                   style={{ 
-                    backgroundColor: index < 3 ? '#8b5cf6' : '#d1d5db',
+                    backgroundColor: index < 3 ? colors.purple : '#d1d5db',
                     color: '#ffffff',
-                    fontSize: screens.xs ? '14px' : '16px',
-                    width: screens.xs ? 36 : 40,
-                    height: screens.xs ? 36 : 40
+                    fontSize: isMobile ? '14px' : '16px',
+                    width: isMobile ? 36 : 40,
+                    height: isMobile ? 36 : 40
                   }}
-                >
-                  {product.name?.charAt(0)?.toUpperCase() || 'P'}
-                </Avatar>
+                  icon={<AppstoreOutlined />}
+                />
               </Badge>
             </Col>
             <Col flex="auto">
               <Space direction="vertical" size={0} style={{ width: '100%' }}>
                 <Row justify="space-between" align="middle">
                   <Text strong style={{ 
-                    fontSize: screens.xs ? '13px' : '15px',
+                    fontSize: isMobile ? '13px' : '15px',
                     color: '#1f2937',
                     fontWeight: '600'
                   }}>
                     {product.name}
                   </Text>
-                  <Tag color="#60a5fa" style={{ fontSize: screens.xs ? '9px' : '10px' }}>
+                  <Tag color={colors.primary} style={{ fontSize: isMobile ? '9px' : '10px' }}>
                     {product.totalSold} sold
                   </Tag>
                 </Row>
                 {index < 3 && (
                   <Tag color="#fbbf24" style={{ 
-                    fontSize: screens.xs ? '9px' : '10px',
+                    fontSize: isMobile ? '9px' : '10px',
                     width: 'fit-content',
                     fontWeight: '500'
                   }}>
@@ -1385,25 +1784,25 @@ const TransactionsReport = ({ currentUser }) => {
             </Col>
           </Row>
           
-          <Row gutter={[12, 12]} style={{ marginTop: screens.xs ? 8 : 12 }}>
+          <Row gutter={[12, 12]} style={{ marginTop: isMobile ? 8 : 12 }}>
             <Col xs={12} sm={8}>
               <div style={{ 
                 background: '#eff6ff',
-                padding: screens.xs ? '8px' : '10px',
+                padding: isMobile ? '8px' : '10px',
                 borderRadius: '8px',
                 textAlign: 'center',
-                minHeight: screens.xs ? '70px' : 'auto'
+                minHeight: isMobile ? '70px' : 'auto'
               }}>
                 <Text type="secondary" style={{ 
-                  fontSize: screens.xs ? '9px' : '10px',
+                  fontSize: isMobile ? '9px' : '10px',
                   display: 'block',
                   marginBottom: 4
                 }}>
                   Revenue
                 </Text>
                 <Text strong style={{ 
-                  color: '#2563eb',
-                  fontSize: screens.xs ? '14px' : '16px',
+                  color: colors.primary,
+                  fontSize: isMobile ? '14px' : '16px',
                   fontWeight: '600'
                 }}>
                   {CalculationUtils.formatCurrency(product.totalRevenue)}
@@ -1414,13 +1813,13 @@ const TransactionsReport = ({ currentUser }) => {
             <Col xs={12} sm={8}>
               <div style={{ 
                 background: '#f0fdf4',
-                padding: screens.xs ? '8px' : '10px',
+                padding: isMobile ? '8px' : '10px',
                 borderRadius: '8px',
                 textAlign: 'center',
-                minHeight: screens.xs ? '70px' : 'auto'
+                minHeight: isMobile ? '70px' : 'auto'
               }}>
                 <Text type="secondary" style={{ 
-                  fontSize: screens.xs ? '9px' : '10px',
+                  fontSize: isMobile ? '9px' : '10px',
                   display: 'block',
                   marginBottom: 4
                 }}>
@@ -1428,7 +1827,7 @@ const TransactionsReport = ({ currentUser }) => {
                 </Text>
                 <Text strong style={{ 
                   color: CalculationUtils.getProfitColor(product.totalProfit),
-                  fontSize: screens.xs ? '14px' : '16px',
+                  fontSize: isMobile ? '14px' : '16px',
                   fontWeight: '600'
                 }}>
                   {CalculationUtils.formatCurrency(product.totalProfit)}
@@ -1439,24 +1838,24 @@ const TransactionsReport = ({ currentUser }) => {
             <Col xs={12} sm={8}>
               <div style={{ 
                 background: '#fefce8',
-                padding: screens.xs ? '8px' : '10px',
+                padding: isMobile ? '8px' : '10px',
                 borderRadius: '8px',
                 textAlign: 'center',
-                minHeight: screens.xs ? '70px' : 'auto'
+                minHeight: isMobile ? '70px' : 'auto'
               }}>
                 <Text type="secondary" style={{ 
-                  fontSize: screens.xs ? '9px' : '10px',
+                  fontSize: isMobile ? '9px' : '10px',
                   display: 'block',
                   marginBottom: 4
                 }}>
                   Margin
                 </Text>
                 <Text strong style={{ 
-                  color: '#059669',
-                  fontSize: screens.xs ? '14px' : '16px',
+                  color: colors.success,
+                  fontSize: isMobile ? '14px' : '16px',
                   fontWeight: '600'
                 }}>
-                  {product.profitMargin.toFixed(1)}%
+                  {product.profitMargin?.toFixed(1) || '0.0'}%
                 </Text>
               </div>
             </Col>
@@ -1466,18 +1865,32 @@ const TransactionsReport = ({ currentUser }) => {
     );
 
     return (
-      <PerformanceList
-        data={dashboardData.topProducts || []}
+      <DeviceAwareCard
         title="Top Performing Products"
-        icon={<AppstoreOutlined />}
+        extra={<Badge count={dashboardData.topProducts?.length || 0} showZero color={colors.purple} />}
         loading={loading}
-        renderItem={renderProductItem}
-        emptyDescription="No product sales data available"
-      />
+      >
+        {dashboardData.topProducts?.length > 0 ? (
+          <List 
+            dataSource={dashboardData.topProducts} 
+            renderItem={renderProductItem}
+            pagination={{ 
+              pageSize: isMobile ? 3 : 5,
+              size: isMobile ? 'small' : 'default',
+              simple: isMobile
+            }}
+          />
+        ) : (
+          <Empty 
+            description="No product performance data available"
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+          />
+        )}
+      </DeviceAwareCard>
     );
   };
 
-  // Transaction Details Modal - RESPONSIVE
+  // Transaction Details Modal
   const TransactionDetailsModal = ({ transaction, visible, onCancel }) => {
     if (!transaction) return null;
 
@@ -1500,59 +1913,57 @@ const TransactionsReport = ({ currentUser }) => {
     return (
       <Modal
         title={
-          <Space>
-            <FileTextOutlined style={{ color: '#2563eb' }} />
-            <Text strong style={{ 
-              fontSize: screens.xs ? '14px' : '16px',
-              fontWeight: '600'
-            }}>Transaction Details</Text>
-            <Tag color={transaction.status === 'completed' ? '#10b981' : '#f59e0b'}>
-              {transaction.status?.toUpperCase()}
+          <Flex align="center" gap="small">
+            <FileTextOutlined style={{ color: colors.primary }} />
+            <Text strong style={{ fontSize: isMobile ? '14px' : '16px' }}>
+              Transaction Details
+            </Text>
+            <Tag color={transaction.status === 'completed' ? colors.success : colors.warning}>
+              {transaction.status?.toUpperCase() || 'COMPLETED'}
             </Tag>
-          </Space>
+          </Flex>
         }
         open={visible}
         onCancel={onCancel}
         footer={[
-          <Button key="close" onClick={onCancel} type="primary" size={screens.xs ? "middle" : "large"}>
+          <Button key="close" onClick={onCancel} type="primary" size={isMobile ? "middle" : "large"}>
             Close
           </Button>
         ]}
-        width={screens.xs ? '100%' : 700}
+        width={isMobile ? '100%' : 700}
         style={{ 
-          top: screens.xs ? 0 : 50,
-          maxHeight: screens.xs ? '100vh' : '80vh'
+          top: isMobile ? 0 : 50,
+          maxHeight: isMobile ? '100vh' : '80vh'
         }}
         bodyStyle={{ 
-          padding: screens.xs ? '16px 12px' : '24px',
-          maxHeight: screens.xs ? 'calc(100vh - 120px)' : '60vh',
+          padding: isMobile ? '16px 12px' : '24px',
+          maxHeight: isMobile ? 'calc(100vh - 120px)' : '60vh',
           overflowY: 'auto',
-          // Mobile scroll optimization
           WebkitOverflowScrolling: 'touch'
         }}
       >
         <Descriptions 
           bordered 
-          column={screens.xs ? 1 : 2} 
+          column={isMobile ? 1 : 2} 
           size="small"
           labelStyle={{ 
             fontWeight: '600',
             background: '#f9fafb',
-            width: screens.xs ? '100%' : 'auto',
-            fontSize: screens.xs ? '12px' : '13px'
+            width: isMobile ? '100%' : 'auto',
+            fontSize: isMobile ? '12px' : '13px'
           }}
           contentStyle={{ 
             background: '#ffffff',
-            fontSize: screens.xs ? '13px' : '14px'
+            fontSize: isMobile ? '13px' : '14px'
           }}
         >
-          <Descriptions.Item label="Transaction ID" span={screens.xs ? 1 : 2}>
-            <Text code style={{ fontSize: screens.xs ? '11px' : '12px' }}>
+          <Descriptions.Item label="Transaction ID" span={isMobile ? 1 : 2}>
+            <Text code style={{ fontSize: isMobile ? '11px' : '12px' }}>
               {transaction.transactionNumber || transaction._id}
             </Text>
           </Descriptions.Item>
           <Descriptions.Item label="Date & Time">
-            {transaction.displayDate || dayjs(transaction.saleDate).format('DD/MM/YYYY HH:mm')}
+            {dayjs(transaction.saleDate).format('DD/MM/YYYY HH:mm')}
           </Descriptions.Item>
           <Descriptions.Item label="Customer">
             {transaction.customerName || 'Walk-in Customer'}
@@ -1562,19 +1973,19 @@ const TransactionsReport = ({ currentUser }) => {
             {transaction.cashierName || 'Unknown Cashier'}
           </Descriptions.Item>
           <Descriptions.Item label="Transaction Type">
-            <Tag color="#10b981">
+            <Tag color={colors.success}>
               COMPLETE SALE
             </Tag>
           </Descriptions.Item>
           <Descriptions.Item label="Payment Method">
-            <Tag color={PAYMENT_METHOD_CONFIG[transaction.paymentMethod]?.color || '#3b82f6'}>
-              {transaction.paymentMethod?.toUpperCase()}
+            <Tag color={PAYMENT_METHOD_CONFIG[transaction.paymentMethod]?.color || colors.primary}>
+              {transaction.paymentMethod?.toUpperCase() || 'CASH'}
             </Tag>
           </Descriptions.Item>
           <Descriptions.Item label="Total Amount">
             <Text strong style={{ 
-              color: '#2563eb', 
-              fontSize: screens.xs ? '16px' : '18px',
+              color: colors.primary, 
+              fontSize: isMobile ? '16px' : '18px',
               fontWeight: '600'
             }}>
               {CalculationUtils.formatCurrency(transaction.totalAmount)}
@@ -1582,8 +1993,8 @@ const TransactionsReport = ({ currentUser }) => {
           </Descriptions.Item>
           <Descriptions.Item label="Cost">
             <Text style={{ 
-              color: '#d97706', 
-              fontSize: screens.xs ? '14px' : '16px',
+              color: colors.warning, 
+              fontSize: isMobile ? '14px' : '16px',
               fontWeight: '500'
             }}>
               {CalculationUtils.formatCurrency(transaction.cost || 0)}
@@ -1592,7 +2003,7 @@ const TransactionsReport = ({ currentUser }) => {
           <Descriptions.Item label="Profit">
             <Text strong style={{ 
               color: CalculationUtils.getProfitColor(transaction.profit),
-              fontSize: screens.xs ? '14px' : '16px',
+              fontSize: isMobile ? '14px' : '16px',
               fontWeight: '600'
             }}>
               {CalculationUtils.formatCurrency(transaction.profit || 0)}
@@ -1600,8 +2011,8 @@ const TransactionsReport = ({ currentUser }) => {
           </Descriptions.Item>
           <Descriptions.Item label="Profit Margin">
             <Text strong style={{ 
-              color: '#059669', 
-              fontSize: screens.xs ? '14px' : '16px',
+              color: colors.success, 
+              fontSize: isMobile ? '14px' : '16px',
               fontWeight: '600'
             }}>
               {CalculationUtils.safeNumber(transaction.profitMargin, 0).toFixed(1)}%
@@ -1609,35 +2020,35 @@ const TransactionsReport = ({ currentUser }) => {
           </Descriptions.Item>
           
           {transaction.items && transaction.items.length > 0 && (
-            <Descriptions.Item label="Items" span={screens.xs ? 1 : 2}>
+            <Descriptions.Item label="Items" span={isMobile ? 1 : 2}>
               <List
                 size="small"
                 dataSource={transaction.items}
                 renderItem={(item, index) => (
-                  <List.Item style={{ padding: screens.xs ? '8px 4px' : '12px 0' }}>
+                  <List.Item style={{ padding: isMobile ? '8px 4px' : '12px 0' }}>
                     <div style={{ width: '100%' }}>
                       <Text strong style={{ 
-                        fontSize: screens.xs ? '12px' : '13px',
+                        fontSize: isMobile ? '12px' : '13px',
                         fontWeight: '600'
                       }}>
                         {item.productName} (x{item.quantity})
                       </Text>
                       <Row gutter={[8, 4]} style={{ marginTop: 4 }}>
                         <Col xs={12}>
-                          <Text style={{ fontSize: screens.xs ? '10px' : '11px', color: '#6b7280' }}>
-                            Price: {CalculationUtils.formatCurrency(item.unitPrice)}
+                          <Text style={{ fontSize: isMobile ? '10px' : '11px', color: '#6b7280' }}>
+                            Price: {CalculationUtils.formatCurrency(item.unitPrice || item.price)}
                           </Text>
                         </Col>
                         <Col xs={12}>
-                          <Text style={{ fontSize: screens.xs ? '10px' : '11px', color: '#6b7280' }}>
-                            Total: {CalculationUtils.formatCurrency(item.totalPrice)}
+                          <Text style={{ fontSize: isMobile ? '10px' : '11px', color: '#6b7280' }}>
+                            Total: {CalculationUtils.formatCurrency(item.totalPrice || (item.price * item.quantity))}
                           </Text>
                         </Col>
                         {item.profit && (
                           <Col xs={24}>
                             <Text style={{ 
-                              fontSize: screens.xs ? '10px' : '11px', 
-                              color: '#059669',
+                              fontSize: isMobile ? '10px' : '11px', 
+                              color: colors.success,
                               fontWeight: '500'
                             }}>
                               Profit: {CalculationUtils.formatCurrency(item.profit)}
@@ -1661,24 +2072,28 @@ const TransactionsReport = ({ currentUser }) => {
     return (
       <div>
         <FinancialOverview />
-        
-        <ShopPerformance />
-        
-        <CashierPerformance />
-        
+        <PaymentComposition />
+        <Row gutter={[layoutConfig.gap, layoutConfig.gap]}>
+          <Col xs={24} lg={12}>
+            <ShopPerformance />
+          </Col>
+          <Col xs={24} lg={12}>
+            <CashierPerformance />
+          </Col>
+        </Row>
         <ProductPerformance />
       </div>
     );
   };
 
-  // Filter Components - RESPONSIVE
+  // Filter Components
   const ShopFilter = ({ value, onChange }) => (
     <div>
       <div style={{ marginBottom: 8 }}>
         <Text strong style={{ 
-          fontSize: screens.xs ? '12px' : '13px',
+          fontSize: isMobile ? '12px' : '13px',
           fontWeight: '600'
-        }}>Select Shop:</Text>
+        }}>Shop:</Text>
       </div>
       <Select
         value={value}
@@ -1687,9 +2102,8 @@ const TransactionsReport = ({ currentUser }) => {
         placeholder="Filter by shop"
         allowClear
         loading={loading}
-        size={screens.xs ? "small" : "middle"}
-        // Mobile optimization for dropdown
-        dropdownStyle={screens.xs ? { fontSize: '14px' } : {}}
+        size={isMobile ? "small" : "middle"}
+        dropdownStyle={isMobile ? { fontSize: '14px' } : {}}
         optionLabelProp="label"
       >
         <Option value="all" label="All Shops">All Shops</Option>
@@ -1706,7 +2120,7 @@ const TransactionsReport = ({ currentUser }) => {
     <div>
       <div style={{ marginBottom: 8 }}>
         <Text strong style={{ 
-          fontSize: screens.xs ? '12px' : '13px',
+          fontSize: isMobile ? '12px' : '13px',
           fontWeight: '600'
         }}>Time Range:</Text>
       </div>
@@ -1715,12 +2129,15 @@ const TransactionsReport = ({ currentUser }) => {
         onChange={onChange}
         style={{ width: '100%' }}
         placeholder="Choose time range"
-        size={screens.xs ? "small" : "middle"}
-        dropdownStyle={screens.xs ? { fontSize: '14px' } : {}}
+        size={isMobile ? "small" : "middle"}
+        dropdownStyle={isMobile ? { fontSize: '14px' } : {}}
       >
         {TIME_RANGE_OPTIONS.map(option => (
           <Option key={option.value} value={option.value} label={option.label}>
-            {option.label}
+            <Space>
+              {option.icon}
+              {option.label}
+            </Space>
           </Option>
         ))}
       </Select>
@@ -1731,7 +2148,7 @@ const TransactionsReport = ({ currentUser }) => {
     <div>
       <div style={{ marginBottom: 8 }}>
         <Text strong style={{ 
-          fontSize: screens.xs ? '12px' : '13px',
+          fontSize: isMobile ? '12px' : '13px',
           fontWeight: '600'
         }}>Payment Mode:</Text>
       </div>
@@ -1741,38 +2158,15 @@ const TransactionsReport = ({ currentUser }) => {
         style={{ width: '100%' }}
         placeholder="Filter by payment mode"
         allowClear
-        size={screens.xs ? "small" : "middle"}
-        dropdownStyle={screens.xs ? { fontSize: '14px' } : {}}
+        size={isMobile ? "small" : "middle"}
+        dropdownStyle={isMobile ? { fontSize: '14px' } : {}}
       >
         {PAYMENT_METHOD_OPTIONS.map(option => (
           <Option key={option.value} value={option.value} label={option.label}>
-            {option.label}
-          </Option>
-        ))}
-      </Select>
-    </div>
-  );
-
-  const TransactionTypeFilter = ({ value, onChange }) => (
-    <div>
-      <div style={{ marginBottom: 8 }}>
-        <Text strong style={{ 
-          fontSize: screens.xs ? '12px' : '13px',
-          fontWeight: '600'
-        }}>Transaction Type:</Text>
-      </div>
-      <Select
-        value={value}
-        onChange={onChange}
-        style={{ width: '100%' }}
-        placeholder="Filter by transaction type"
-        allowClear
-        size={screens.xs ? "small" : "middle"}
-        dropdownStyle={screens.xs ? { fontSize: '14px' } : {}}
-      >
-        {TRANSACTION_TYPE_OPTIONS.map(option => (
-          <Option key={option.value} value={option.value} label={option.label}>
-            {option.label}
+            <Space>
+              {option.icon}
+              {option.label}
+            </Space>
           </Option>
         ))}
       </Select>
@@ -1780,550 +2174,511 @@ const TransactionsReport = ({ currentUser }) => {
   );
 
   return (
-    <div style={{ 
-      padding: screens.xs ? '12px 8px' : '24px', 
-      background: '#f9fafb', 
-      minHeight: '100vh',
-      maxWidth: '100vw',
-      overflowX: 'hidden',
-      // Mobile viewport optimization
-      WebkitTextSizeAdjust: '100%'
+    <Layout style={{ 
+      minHeight: '100vh', 
+      background: token.colorBgLayout,
+      overflow: 'hidden'
     }}>
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center', 
-        marginBottom: screens.xs ? '16px' : '24px', 
-        flexWrap: 'wrap', 
-        gap: '16px'
+      <Content style={{ 
+        padding: layoutConfig.padding,
+        maxWidth: '1400px',
+        margin: '0 auto',
+        width: '100%',
+        minHeight: '100vh'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-          <BarChartOutlined style={{ 
-            color: '#2563eb', 
-            fontSize: screens.xs ? '20px' : '24px',
-            marginRight: screens.xs ? 8 : 12 
-          }} />
-          <Title level={2} style={{ 
-            color: '#1f2937', 
-            margin: 0,
-            fontSize: screens.xs ? '18px' : '24px',
-            fontWeight: '600'
+        {/* Header Section */}
+        <DeviceAwareCard
+          title={
+            <Flex vertical gap="small">
+              <Flex align="center" gap="middle" wrap="wrap">
+                <div style={{
+                  background: `linear-gradient(135deg, ${colors.primary}, ${colors.purple})`,
+                  borderRadius: '12px',
+                  padding: '12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}>
+                  <BarChartOutlined style={{ 
+                    color: 'white', 
+                    fontSize: isMobile ? '24px' : '28px'
+                  }} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <Title level={isMobile ? 4 : 3} style={{ margin: 0, lineHeight: 1.2 }}>
+                    Transactions Report
+                  </Title>
+                  <Text type="secondary" style={{ 
+                    fontSize: layoutConfig.fontSize.subtitle,
+                    display: 'block',
+                    marginTop: '4px'
+                  }}>
+                    Comprehensive analysis of all transactions across your shops
+                  </Text>
+                </div>
+              </Flex>
+              
+              {/* Search and Controls - AUTO-REFRESH BUTTON REMOVED */}
+              <Flex 
+                gap="middle" 
+                wrap="wrap" 
+                justify="space-between" 
+                style={{ marginTop: isMobile ? '12px' : '16px' }}
+              >
+                <Input
+                  ref={searchInputRef}
+                  placeholder="Search transactions..."
+                  prefix={<SearchOutlined />}
+                  value={searchText}
+                  onChange={(e) => setSearchText(e.target.value)}
+                  style={{ 
+                    width: isMobile ? '100%' : 300,
+                    maxWidth: '100%',
+                    borderRadius: '8px'
+                  }}
+                  size={isMobile ? 'middle' : 'large'}
+                  allowClear
+                />
+                
+                <Flex gap="small" wrap="wrap">
+                  {/* AUTO-REFRESH BUTTON COMPLETELY REMOVED */}
+                  
+                  <Button
+                    icon={<ReloadOutlined />}
+                    onClick={handleManualRefresh}
+                    disabled={loading}
+                    size={isMobile ? "middle" : "large"}
+                    type="primary"
+                    style={{ 
+                      background: colors.primary, 
+                      borderColor: colors.primary,
+                      minWidth: isMobile ? '40px' : 'auto'
+                    }}
+                  >
+                    {!isMobile && 'Refresh'}
+                  </Button>
+
+                  <Button
+                    icon={<ExportOutlined />}
+                    onClick={handleExportData}
+                    loading={exportLoading}
+                    size={isMobile ? "middle" : "large"}
+                    style={{ 
+                      color: colors.success, 
+                      borderColor: colors.success,
+                      minWidth: isMobile ? '40px' : 'auto'
+                    }}
+                  >
+                    {!isMobile && 'Export'}
+                  </Button>
+
+                  <Button
+                    icon={<FilterOutlined />}
+                    onClick={() => setFilterVisible(!filterVisible)}
+                    size={isMobile ? "middle" : "large"}
+                    type={filterVisible ? "primary" : "default"}
+                    style={filterVisible ? { 
+                      background: colors.warning, 
+                      borderColor: colors.warning,
+                      minWidth: isMobile ? '40px' : 'auto'
+                    } : {
+                      minWidth: isMobile ? '40px' : 'auto'
+                    }}
+                  >
+                    {!isMobile && (filterVisible ? 'Hide Filters' : 'Show Filters')}
+                  </Button>
+                </Flex>
+              </Flex>
+            </Flex>
+          }
+          extra={null}
+        />
+
+        {/* Data Timestamp and Active Filters */}
+        <Row style={{ marginBottom: 16 }} justify="space-between" align="middle" gutter={[8, 8]}>
+          <Col xs={24} sm={12}>
+            {dataTimestamp && (
+              <Text type="secondary" style={{ 
+                fontSize: isMobile ? '10px' : '12px',
+                display: 'block'
+              }}>
+                Last updated: {new Date(dataTimestamp).toLocaleString()}
+                {/* AUTO-REFRESH TAG REMOVED */}
+              </Text>
+            )}
+          </Col>
+          <Col xs={24} sm={12}>
+            {(filters.dateRange || filters.shop !== 'all' || filters.paymentMethod) && (
+              <Space wrap style={{ justifyContent: isMobile ? 'flex-start' : 'flex-end' }}>
+                <Text type="secondary" style={{ fontSize: isMobile ? '10px' : '12px' }}>
+                  Active filters:
+                </Text>
+                {filters.dateRange && (
+                  <Tag color={colors.primary} style={{ fontSize: isMobile ? '9px' : '10px' }}>
+                    {filters.dateRange[0].format('MM/DD')} - {filters.dateRange[1].format('MM/DD')}
+                  </Tag>
+                )}
+                {filters.shop !== 'all' && (
+                  <Tag color={colors.success} style={{ fontSize: isMobile ? '9px' : '10px' }}>
+                    Shop: {shops.find(s => s._id === filters.shop)?.name || filters.shop}
+                  </Tag>
+                )}
+                {filters.paymentMethod && (
+                  <Tag color={colors.warning} style={{ fontSize: isMobile ? '9px' : '10px' }}>
+                    Payment: {filters.paymentMethod.toUpperCase()}
+                  </Tag>
+                )}
+              </Space>
+            )}
+          </Col>
+        </Row>
+
+        {/* Filters Section - Collapsible */}
+        {filterVisible && (
+          <DeviceAwareCard
+            title="Transaction Filters"
+            extra={
+              <Button 
+                size={isMobile ? "small" : "middle"} 
+                onClick={handleClearFilters}
+                style={{ 
+                  color: colors.error, 
+                  borderColor: colors.error,
+                  minWidth: isMobile ? '60px' : 'auto'
+                }}
+              >
+                Clear All
+              </Button>
+            }
+          >
+            <Row gutter={[12, 12]}>
+              <Col xs={24} sm={12} md={6} lg={4}>
+                <ShopFilter 
+                  value={filters.shop}
+                  onChange={(value) => handleFilterChange('shop', value)}
+                />
+              </Col>
+
+              <Col xs={24} sm={12} md={6} lg={4}>
+                <TimeRangeFilter 
+                  value={timeFilter}
+                  onChange={handleTimeFilterChange}
+                />
+              </Col>
+
+              <Col xs={24} sm={12} md={6} lg={4}>
+                <PaymentModeFilter 
+                  value={filters.paymentMethod}
+                  onChange={(value) => handleFilterChange('paymentMethod', value)}
+                />
+              </Col>
+
+              {timeFilter === 'custom' && (
+                <Col xs={24} sm={24} md={8} lg={6}>
+                  <div>
+                    <div style={{ marginBottom: 8 }}>
+                      <Text strong style={{ 
+                        fontSize: isMobile ? '12px' : '13px',
+                        fontWeight: '600'
+                      }}>Custom Range:</Text>
+                    </div>
+                    <RangePicker
+                      onChange={handleCustomDateChange}
+                      value={customDateRange}
+                      style={{ width: '100%' }}
+                      allowClear
+                      size={isMobile ? "small" : "middle"}
+                      placeholder={['Start', 'End']}
+                      format="DD/MM/YYYY"
+                    />
+                  </div>
+                </Col>
+              )}
+            </Row>
+
+            {/* Active Filters Summary */}
+            <div style={{ 
+              marginTop: 16, 
+              padding: isMobile ? '10px 12px' : '12px 16px', 
+              backgroundColor: '#eff6ff', 
+              borderRadius: '12px',
+              border: `1px solid ${colors.primary}20`
+            }}>
+              <Text strong style={{ 
+                fontSize: isMobile ? '12px' : '13px',
+                fontWeight: '600'
+              }}>Current View: </Text>
+              <Space wrap style={{ marginTop: 8 }}>
+                <Tag color={colors.primary} style={{ fontSize: isMobile ? '9px' : '10px' }}>
+                  Shop: {getShopNameForDisplay()}
+                </Tag>
+                <Tag color={colors.primary} style={{ fontSize: isMobile ? '9px' : '10px' }}>
+                  Period: {TIME_RANGE_OPTIONS.find(opt => opt.value === timeFilter)?.label || timeFilter.toUpperCase()}
+                </Tag>
+                {filters.paymentMethod && (
+                  <Tag color={colors.success} style={{ fontSize: isMobile ? '9px' : '10px' }}>
+                    Payment: {filters.paymentMethod.toUpperCase()}
+                  </Tag>
+                )}
+                {searchText && (
+                  <Tag color={colors.warning} style={{ fontSize: isMobile ? '9px' : '10px' }}>
+                    Search: "{searchText}"
+                  </Tag>
+                )}
+              </Space>
+              <div style={{ marginTop: 12 }}>
+                <Text strong style={{ 
+                  fontSize: isMobile ? '11px' : '12px',
+                  fontWeight: '600'
+                }}>Summary: </Text>
+                <Space wrap style={{ marginTop: 4 }}>
+                  <Badge 
+                    count={filteredTransactions.length} 
+                    showZero 
+                    color={colors.primary} 
+                    style={{ fontSize: isMobile ? '10px' : '11px' }} 
+                  />
+                  <Text type="secondary" style={{ fontSize: isMobile ? '10px' : '11px' }}>
+                    Transactions
+                  </Text>
+                  <Divider type="vertical" />
+                  <Text style={{ fontSize: isMobile ? '10px' : '11px', color: colors.success }}>
+                    Revenue: {CalculationUtils.formatCurrency(dashboardData.financialStats?.totalRevenue || 0)}
+                  </Text>
+                </Space>
+              </div>
+            </div>
+          </DeviceAwareCard>
+        )}
+
+        {error && (
+          <Alert
+            message="Error Loading Data"
+            description={error}
+            type="error"
+            style={{ 
+              marginBottom: 16,
+              borderRadius: '12px',
+              fontSize: isMobile ? '12px' : '14px'
+            }}
+            closable
+            onClose={() => setError(null)}
+          />
+        )}
+
+        {loading && !dashboardData.recentTransactions.length ? (
+          <div style={{ 
+            textAlign: 'center', 
+            padding: isMobile ? '30px 16px' : '50px', 
+            background: '#ffffff',
+            borderRadius: '16px',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.08)'
           }}>
-            Transactions Report
-          </Title>
-          {screens.xs && <MobileOutlined style={{ color: '#6b7280' }} />}
-          {currentUser?.role === 'cashier' && (
-            <Tag color="#3b82f6" style={{ 
-              fontSize: screens.xs ? '10px' : '12px',
-              marginLeft: screens.xs ? 0 : 8,
+            <Spin size="large" />
+            <div style={{ 
+              marginTop: 16, 
+              color: '#6b7280', 
+              fontSize: isMobile ? '12px' : '14px',
               fontWeight: '500'
             }}>
-              My Transactions
-            </Tag>
-          )}
-        </div>
-        
-        <Space wrap style={{ 
-          justifyContent: screens.xs ? 'flex-start' : 'flex-end',
-          // Mobile button spacing
-          gap: screens.xs ? '8px' : '12px'
-        }}>
-          {/* Auto-refresh indicator */}
-          <Tooltip title={filters.autoRefresh ? "Auto-refresh ON (30s)" : "Auto-refresh OFF"}>
-            <Button 
-              type={filters.autoRefresh ? "primary" : "default"}
-              icon={<ReloadOutlined spin={filters.autoRefresh} />}
-              onClick={() => handleFilterChange('autoRefresh', !filters.autoRefresh)}
-              size={screens.xs ? "small" : "middle"}
-              style={{ 
-                background: filters.autoRefresh ? '#10b981' : '#f3f4f6',
-                borderColor: filters.autoRefresh ? '#10b981' : '#d1d5db',
-                // Mobile touch target
-                minWidth: screens.xs ? '40px' : 'auto',
-                height: screens.xs ? '32px' : 'auto'
-              }}
-            >
-              {screens.xs ? 'Auto' : 'Auto Refresh'}
-            </Button>
-          </Tooltip>
-          
-          <Button
-            icon={<ReloadOutlined />}
-            onClick={quickRefresh}
-            disabled={loading}
-            size={screens.xs ? "small" : "middle"}
-            type="primary"
-            style={{ 
-              background: '#2563eb', 
-              borderColor: '#2563eb',
-              minWidth: screens.xs ? '40px' : 'auto',
-              height: screens.xs ? '32px' : 'auto'
-            }}
-          >
-            {screens.xs ? 'Refresh' : 'Quick Refresh'}
-          </Button>
-
-          <Button
-            icon={<ExportOutlined />}
-            onClick={handleExportData}
-            loading={exportLoading}
-            size={screens.xs ? "small" : "middle"}
-            style={{ 
-              color: '#059669', 
-              borderColor: '#059669',
-              minWidth: screens.xs ? '40px' : 'auto',
-              height: screens.xs ? '32px' : 'auto'
-            }}
-          >
-            {screens.xs ? 'Export' : 'Export Data'}
-          </Button>
-
-          <Button
-            icon={<FilterOutlined />}
-            onClick={() => setFilterVisible(!filterVisible)}
-            size={screens.xs ? "small" : "middle"}
-            type={filterVisible ? "primary" : "default"}
-            style={filterVisible ? { 
-              background: '#f97316', 
-              borderColor: '#f97316',
-              minWidth: screens.xs ? '40px' : 'auto',
-              height: screens.xs ? '32px' : 'auto'
-            } : {
-              minWidth: screens.xs ? '40px' : 'auto',
-              height: screens.xs ? '32px' : 'auto'
-            }}
-          >
-            {screens.xs ? 'Filters' : 'Toggle Filters'}
-          </Button>
-        </Space>
-      </div>
-
-      {/* Data Timestamp and Active Filters */}
-      <Row style={{ marginBottom: 16 }} justify="space-between" align="middle" gutter={[8, 8]}>
-        <Col xs={24} sm={12}>
-          {dataTimestamp && (
-            <Text type="secondary" style={{ 
-              fontSize: screens.xs ? '10px' : '12px',
-              display: 'block'
-            }}>
-              Last updated: {new Date(dataTimestamp).toLocaleString()}
-              {filters.autoRefresh && (
-                <Tag color="#10b981" style={{ marginLeft: 8, fontSize: screens.xs ? '9px' : '10px' }}>
-                  Auto-refresh ON
-                </Tag>
-              )}
-            </Text>
-          )}
-        </Col>
-        <Col xs={24} sm={12}>
-          {(filters.dateRange || filters.shop !== 'all' || filters.paymentMethod || filters.transactionType) && (
-            <Space wrap style={{ justifyContent: screens.xs ? 'flex-start' : 'flex-end' }}>
-              <Text type="secondary" style={{ fontSize: screens.xs ? '10px' : '12px' }}>
-                Active filters:
-              </Text>
-              {filters.dateRange && (
-                <Tag color="#3b82f6" style={{ fontSize: screens.xs ? '9px' : '10px' }}>
-                  {filters.dateRange[0].format('MM/DD')} - {filters.dateRange[1].format('MM/DD')}
-                </Tag>
-              )}
-              {filters.shop !== 'all' && (
-                <Tag color="#10b981" style={{ fontSize: screens.xs ? '9px' : '10px' }}>
-                  Shop: {shops.find(s => s._id === filters.shop)?.name || filters.shop}
-                </Tag>
-              )}
-              {filters.paymentMethod && (
-                <Tag color="#f59e0b" style={{ fontSize: screens.xs ? '9px' : '10px' }}>
-                  Payment: {filters.paymentMethod.toUpperCase()}
-                </Tag>
-              )}
-              {filters.transactionType && (
-                <Tag color="#8b5cf6" style={{ fontSize: screens.xs ? '9px' : '10px' }}>
-                  Type: {filters.transactionType.toUpperCase()}
-                </Tag>
-              )}
-            </Space>
-          )}
-        </Col>
-      </Row>
-
-      {/* Filters Section - Collapsible */}
-      {filterVisible && (
-        <Card 
-          style={{ 
-            marginBottom: 24,
-            borderRadius: '16px',
-            boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
-            border: '1px solid #e5e7eb',
-            // Mobile optimization
-            padding: screens.xs ? '12px' : '16px'
-          }}
-          title={
-            <Space>
-              <FilterOutlined style={{ color: '#2563eb' }} />
-              <Text strong style={{ 
-                fontSize: screens.xs ? '14px' : '16px',
-                fontWeight: '600'
-              }}>Transaction Filters</Text>
-            </Space>
-          }
-          extra={
-            <Button 
-              size={screens.xs ? "small" : "middle"} 
-              onClick={handleClearFilters}
-              style={{ 
-                color: '#ef4444', 
-                borderColor: '#ef4444',
-                minWidth: screens.xs ? '60px' : 'auto'
-              }}
-            >
-              Clear All
-            </Button>
-          }
-        >
-          <Row gutter={[12, 12]}>
-            <Col span={24}>
-              <Input
-                placeholder="Search transactions... (product name, customer, cashier, shop, transaction ID)"
-                prefix={<SearchOutlined />}
-                value={searchText}
-                onChange={(e) => setSearchText(e.target.value)}
-                style={{ width: '100%' }}
-                allowClear
-                size={screens.xs ? "middle" : "large"}
-                // Mobile input optimization
-                inputMode="search"
-                enterKeyHint="search"
-              />
-            </Col>
-            
-            <Col xs={24} sm={12} md={6} lg={4}>
-              <ShopFilter 
-                value={filters.shop}
-                onChange={(value) => handleFilterChange('shop', value)}
-              />
-            </Col>
-
-            <Col xs={24} sm={12} md={6} lg={4}>
-              <TimeRangeFilter 
-                value={filters.timeRange}
-                onChange={(value) => handleFilterChange('timeRange', value)}
-              />
-            </Col>
-
-            <Col xs={24} sm={12} md={6} lg={4}>
-              <PaymentModeFilter 
-                value={filters.paymentMethod}
-                onChange={(value) => handleFilterChange('paymentMethod', value)}
-              />
-            </Col>
-
-            <Col xs={24} sm={12} md={6} lg={4}>
-              <TransactionTypeFilter 
-                value={filters.transactionType}
-                onChange={(value) => handleFilterChange('transactionType', value)}
-              />
-            </Col>
-
-            {filters.timeRange === 'custom' && (
-              <Col xs={24} sm={24} md={8} lg={6}>
-                <div>
-                  <div style={{ marginBottom: 8 }}>
-                    <Text strong style={{ 
-                      fontSize: screens.xs ? '12px' : '13px',
-                      fontWeight: '600'
-                    }}>Custom Date Range:</Text>
-                  </div>
-                  <RangePicker
-                    onChange={(dates) => handleFilterChange('dateRange', dates)}
-                    value={filters.dateRange}
-                    style={{ width: '100%' }}
-                    allowClear
-                    size={screens.xs ? "small" : "middle"}
-                    placeholder={['Start Date', 'End Date']}
-                    // Mobile date picker optimization
-                    format="DD/MM/YYYY"
-                  />
-                </div>
-              </Col>
-            )}
-          </Row>
-
-          {/* Active Filters Display */}
-          <div style={{ 
-            marginTop: 16, 
-            padding: screens.xs ? '10px 12px' : '12px 16px', 
-            backgroundColor: '#eff6ff', 
-            borderRadius: '12px',
-            border: '1px solid #dbeafe'
-          }}>
-            <Text strong style={{ 
-              fontSize: screens.xs ? '12px' : '13px',
-              fontWeight: '600'
-            }}>Active Filters: </Text>
-            <Space wrap style={{ marginTop: 8 }}>
-              <Tag color="#3b82f6" style={{ fontSize: screens.xs ? '9px' : '10px' }}>
-                Shop: {getShopNameForDisplay()}
-              </Tag>
-              {filters.timeRange && (
-                <Tag color="#3b82f6" style={{ fontSize: screens.xs ? '9px' : '10px' }}>
-                  Time: {TIME_RANGE_OPTIONS.find(opt => opt.value === filters.timeRange)?.label || filters.timeRange.toUpperCase()}
-                </Tag>
-              )}
-              {filters.paymentMethod && (
-                <Tag color="#10b981" style={{ fontSize: screens.xs ? '9px' : '10px' }}>
-                  Payment: {filters.paymentMethod.toUpperCase()}
-                </Tag>
-              )}
-              {filters.transactionType && (
-                <Tag color="#8b5cf6" style={{ fontSize: screens.xs ? '9px' : '10px' }}>
-                  Type: {filters.transactionType.toUpperCase()}
-                </Tag>
-              )}
-              {searchText && (
-                <Tag color="#f59e0b" style={{ fontSize: screens.xs ? '9px' : '10px' }}>
-                  Search: "{searchText}"
-                </Tag>
-              )}
-            </Space>
-            <div style={{ marginTop: 12 }}>
-              <Text strong style={{ 
-                fontSize: screens.xs ? '11px' : '12px',
-                fontWeight: '600'
-              }}>Transaction Counts: </Text>
-              <Space wrap style={{ marginTop: 4 }}>
-                <Badge count={transactionTypeCounts.total} showZero color="#2563eb" style={{ fontSize: screens.xs ? '10px' : '11px' }} />
-                <Text type="secondary" style={{ fontSize: screens.xs ? '10px' : '11px' }}>Total Transactions</Text>
-              </Space>
+              Loading comprehensive transaction data...
             </div>
           </div>
-        </Card>
-      )}
-
-      {error && (
-        <Alert
-          message="Error Loading Data"
-          description={error}
-          type="error"
-          style={{ 
-            marginBottom: 16,
-            borderRadius: '12px',
-            fontSize: screens.xs ? '12px' : '14px'
-          }}
-          closable
-          onClose={() => setError(null)}
-        />
-      )}
-
-      {loading && !dashboardData.recentTransactions.length ? (
-        <div style={{ 
-          textAlign: 'center', 
-          padding: screens.xs ? '30px 16px' : '50px', 
-          background: '#ffffff',
-          borderRadius: '16px',
-          boxShadow: '0 4px 20px rgba(0,0,0,0.08)'
-        }}>
-          <Spin size="large" />
-          <div style={{ 
-            marginTop: 16, 
-            color: '#6b7280', 
-            fontSize: screens.xs ? '12px' : '14px',
-            fontWeight: '500'
-          }}>
-            Loading comprehensive transaction data...
-          </div>
-        </div>
-      ) : (
-        <Tabs 
-          activeKey={activeTab} 
-          onChange={setActiveTab}
-          style={{
-            background: 'white',
-            padding: screens.xs ? '12px' : '16px',
-            borderRadius: '16px',
-            boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
-            border: '1px solid #e5e7eb',
-            // Mobile optimization
-            overflow: 'hidden'
-          }}
-          tabBarStyle={{ margin: 0 }}
-          size={screens.xs ? "small" : "middle"}
-          // Mobile tab optimization
-          moreIcon={screens.xs ? null : undefined}
-        >
-          <Tabs.TabPane 
-            tab={
-              <span style={{ 
-                display: 'flex', 
-                alignItems: 'center', 
-                gap: '4px',
-                padding: screens.xs ? '4px 8px' : '8px 12px'
-              }}>
-                <PieChartOutlined style={{ fontSize: screens.xs ? '12px' : '14px' }} />
-                <span style={{ 
-                  fontSize: screens.xs ? '11px' : '13px',
-                  fontWeight: '500'
-                }}>Overview</span>
-                <Badge 
-                  count={dashboardData?.recentTransactions?.length || 0} 
-                  overflowCount={999} 
-                  style={{ 
-                    marginLeft: 4, 
-                    fontSize: screens.xs ? '9px' : '10px',
-                    background: '#2563eb'
-                  }} 
+        ) : (
+          <Tabs 
+            activeKey={activeTab} 
+            onChange={setActiveTab}
+            style={{
+              background: 'white',
+              padding: isMobile ? '12px' : '16px',
+              borderRadius: '16px',
+              boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
+              border: '1px solid #e5e7eb',
+              overflow: 'hidden'
+            }}
+            tabBarStyle={{ margin: 0 }}
+            size={isMobile ? "small" : "middle"}
+            tabBarExtraContent={
+              isMobile && (
+                <Segmented
+                  options={[
+                    { label: <AppstoreOutlined />, value: 'grid', title: 'Grid View' },
+                    { label: <UnorderedListOutlined />, value: 'list', title: 'List View' }
+                  ]}
+                  value={viewMode}
+                  onChange={setViewMode}
+                  size="small"
                 />
-              </span>
-            } 
-            key="overview"
+              )
+            }
           >
-            {renderOverviewTab()}
-          </Tabs.TabPane>
-
-          <Tabs.TabPane 
-            tab={
-              <span style={{ 
-                display: 'flex', 
-                alignItems: 'center', 
-                gap: '4px',
-                padding: screens.xs ? '4px 8px' : '8px 12px'
-              }}>
-                <TableOutlined style={{ fontSize: screens.xs ? '12px' : '14px' }} />
+            <Tabs.TabPane 
+              tab={
                 <span style={{ 
-                  fontSize: screens.xs ? '11px' : '13px',
-                  fontWeight: '500'
-                }}>Transactions</span>
-                <Badge 
-                  count={filteredTransactions.length} 
-                  overflowCount={999} 
-                  style={{ 
-                    marginLeft: 4, 
-                    fontSize: screens.xs ? '9px' : '10px',
-                    background: '#2563eb'
-                  }} 
-                />
-              </span>
-            } 
-            key="details"
-          >
-            <Card
-              style={{
-                borderRadius: '16px',
-                boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
-                border: '1px solid #e5e7eb',
-                padding: screens.xs ? '12px' : '16px',
-                // Mobile optimization
-                overflow: 'hidden'
-              }}
-              bodyStyle={{ padding: 0 }}
-            >
-              <div style={{ 
-                padding: screens.xs ? '12px 8px' : '16px', 
-                borderBottom: '1px solid #f3f4f6' 
-              }}>
-                <Text strong style={{ 
-                  fontSize: screens.xs ? '13px' : '15px',
-                  fontWeight: '600'
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '4px',
+                  padding: isMobile ? '4px 8px' : '8px 12px'
                 }}>
-                  Showing {filteredTransactions.length} of {dashboardData?.recentTransactions?.length || 0} transactions
-                </Text>
-                {filters.shop !== 'all' && (
-                  <Text type="secondary" style={{ 
-                    fontSize: screens.xs ? '11px' : '13px',
-                    fontWeight: '400'
-                  }}>
-                    {' '}for {getShopNameForDisplay()}
+                  <PieChartOutlined style={{ fontSize: isMobile ? '12px' : '14px' }} />
+                  <span style={{ 
+                    fontSize: isMobile ? '11px' : '13px',
+                    fontWeight: '500'
+                  }}>Overview</span>
+                  <Badge 
+                    count={dashboardData?.recentTransactions?.length || 0} 
+                    overflowCount={999} 
+                    style={{ 
+                      marginLeft: 4, 
+                      fontSize: isMobile ? '9px' : '10px',
+                      background: colors.primary
+                    }} 
+                  />
+                </span>
+              } 
+              key="overview"
+            >
+              {renderOverviewTab()}
+            </Tabs.TabPane>
+
+            <Tabs.TabPane 
+              tab={
+                <span style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '4px',
+                  padding: isMobile ? '4px 8px' : '8px 12px'
+                }}>
+                  <TableOutlined style={{ fontSize: isMobile ? '12px' : '14px' }} />
+                  <span style={{ 
+                    fontSize: isMobile ? '11px' : '13px',
+                    fontWeight: '500'
+                  }}>Transactions</span>
+                  <Badge 
+                    count={filteredTransactions.length} 
+                    overflowCount={999} 
+                    style={{ 
+                      marginLeft: 4, 
+                      fontSize: isMobile ? '9px' : '10px',
+                      background: colors.primary
+                    }} 
+                  />
+                </span>
+              } 
+              key="details"
+            >
+              <DeviceAwareCard
+                title={`Transaction List (${filteredTransactions.length} of ${dashboardData?.recentTransactions?.length || 0})`}
+                extra={
+                  <Text type="secondary" style={{ fontSize: isMobile ? '11px' : '12px' }}>
+                    {filters.shop !== 'all' && `for ${getShopNameForDisplay()}`}
                   </Text>
-                )}
-                {dashboardData?.financialStats && (
-                  <div style={{ marginTop: 8 }}>
-                    <Row gutter={[8, 8]}>
-                      <Col xs={12} sm={6}>
-                        <Tag color="#2563eb" style={{ 
-                          fontSize: screens.xs ? '10px' : '11px', 
-                          width: '100%',
-                          fontWeight: '500'
-                        }}>
-                          Revenue: {CalculationUtils.formatCurrency(dashboardData.financialStats.totalRevenue)}
-                        </Tag>
-                      </Col>
-                      <Col xs={12} sm={6}>
-                        <Tag color="#10b981" style={{ 
-                          fontSize: screens.xs ? '10px' : '11px', 
-                          width: '100%',
-                          fontWeight: '500'
-                        }}>
-                          Profit: {CalculationUtils.formatCurrency(dashboardData.financialStats.netProfit)}
-                        </Tag>
-                      </Col>
-                      <Col xs={24} sm={12}>
-                        <Tag color="#f59e0b" style={{ 
-                          fontSize: screens.xs ? '10px' : '11px', 
-                          width: '100%',
-                          fontWeight: '500'
-                        }}>
-                          Total Transactions: {dashboardData.financialStats.totalSales}
-                        </Tag>
-                      </Col>
-                    </Row>
+                }
+              >
+                {isMobile && viewMode === 'list' ? (
+                  // Mobile List View
+                  <div style={{ 
+                    maxHeight: 'calc(100vh - 300px)',
+                    overflowY: 'auto',
+                    padding: '4px'
+                  }}>
+                    {filteredTransactions.length > 0 ? (
+                      filteredTransactions.map(transaction => (
+                        <TransactionItem 
+                          key={transaction._id} 
+                          transaction={transaction} 
+                          screens={screens} 
+                          colors={colors}
+                          onView={handleViewTransaction}
+                        />
+                      ))
+                    ) : (
+                      <Empty
+                        description={
+                          filteredTransactions.length === 0 && dashboardData?.recentTransactions?.length > 0 ? 
+                            'No transactions match your search' : 
+                            'No transactions found'
+                        }
+                        image={Empty.PRESENTED_IMAGE_SIMPLE}
+                        style={{ padding: '40px 0' }}
+                      />
+                    )}
+                  </div>
+                ) : (
+                  // Desktop Table View or Mobile Grid View
+                  <div style={{ 
+                    overflowX: 'auto',
+                    WebkitOverflowScrolling: 'touch'
+                  }}>
+                    <Table
+                      columns={columns}
+                      dataSource={filteredTransactions}
+                      rowKey={(record) => record._id || record.transactionNumber || Math.random()}
+                      loading={loading}
+                      pagination={{
+                        pageSize: isMobile ? 10 : 20,
+                        showSizeChanger: !isMobile,
+                        showQuickJumper: !isMobile,
+                        showTotal: !isMobile ? (total, range) =>
+                          `${range[0]}-${range[1]} of ${total} transactions` : undefined,
+                        size: isMobile ? "small" : "default",
+                        simple: isMobile,
+                        position: ['bottomCenter']
+                      }}
+                      scroll={{ x: isMobile ? 600 : 1200 }}
+                      locale={{ 
+                        emptyText: filteredTransactions.length === 0 && dashboardData?.recentTransactions?.length > 0 ? 
+                          'No transactions match your search' : 
+                          <Empty 
+                            description="No transactions found"
+                            image={Empty.PRESENTED_IMAGE_SIMPLE}
+                          />
+                      }}
+                      size={isMobile ? "small" : "middle"}
+                      sticky={isMobile}
+                    />
                   </div>
                 )}
-              </div>
-              <div style={{ 
-                overflowX: 'auto',
-                WebkitOverflowScrolling: 'touch', // Smooth scrolling on iOS
-                // Mobile optimization
-                msOverflowStyle: 'none',
-                scrollbarWidth: 'none'
-              }}>
-                <Table
-                  columns={columns}
-                  dataSource={filteredTransactions}
-                  rowKey={(record) => record._id || record.transactionNumber || Math.random()}
-                  loading={loading}
-                  pagination={{
-                    pageSize: screens.xs ? 10 : 20,
-                    showSizeChanger: !screens.xs,
-                    showQuickJumper: !screens.xs,
-                    showTotal: !screens.xs ? (total, range) =>
-                      `${range[0]}-${range[1]} of ${total} transactions` : undefined,
-                    size: screens.xs ? "small" : "default",
-                    simple: screens.xs,
-                    // Mobile pagination optimization
-                    position: ['bottomCenter']
-                  }}
-                  scroll={{ x: screens.xs ? 600 : 2000 }}
-                  locale={{ 
-                    emptyText: filteredTransactions.length === 0 && dashboardData?.recentTransactions?.length > 0 ? 
-                      'No transactions match your search' : 
-                      <Empty 
-                        description={
-                          <Text style={{ 
-                            color: '#6b7280', 
-                            fontSize: screens.xs ? '12px' : '14px',
-                            fontWeight: '500'
-                          }}>
-                            No transactions found
-                          </Text>
-                        }
-                        imageStyle={{ height: screens.xs ? 60 : 80 }}
-                      />
-                  }}
-                  size={screens.xs ? "small" : "middle"}
-                  // Mobile table optimization
-                  sticky={screens.xs}
-                />
-              </div>
-            </Card>
-          </Tabs.TabPane>
-        </Tabs>
-      )}
+              </DeviceAwareCard>
+            </Tabs.TabPane>
+          </Tabs>
+        )}
 
-      <TransactionDetailsModal
-        transaction={selectedTransaction}
-        visible={viewModalVisible}
-        onCancel={() => setViewModalVisible(false)}
-      />
-    </div>
+        <TransactionDetailsModal
+          transaction={selectedTransaction}
+          visible={viewModalVisible}
+          onCancel={() => setViewModalVisible(false)}
+        />
+
+        {/* Device Status Indicator */}
+        {isMobile && (
+          <div style={{ 
+            position: 'fixed', 
+            bottom: '16px', 
+            right: '16px',
+            zIndex: 1000
+          }}>
+            <FloatButton.Group
+              trigger="click"
+              type="primary"
+              icon={<SettingOutlined />}
+              tooltip="Device Settings"
+            >
+              <FloatButton 
+                icon={<MobileOutlined />}
+                tooltip={`Mobile View (${screens.width}×${screens.height})`}
+              />
+              <FloatButton 
+                icon={<ReloadOutlined />}
+                onClick={handleManualRefresh}
+                tooltip="Refresh Data"
+              />
+              <FloatButton.BackTop visibilityHeight={0} />
+            </FloatButton.Group>
+          </div>
+        )}
+      </Content>
+    </Layout>
   );
 };
 

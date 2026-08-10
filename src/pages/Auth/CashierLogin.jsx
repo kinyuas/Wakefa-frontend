@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+// pages/Auth/CashierLogin.jsx - UPDATED WITH SESSION EXPIRY HANDLING
+import React, { useState, useEffect } from 'react';
 import { 
   Container,
   Box,
@@ -11,26 +12,66 @@ import {
   CircularProgress,
   TextField,
   InputAdornment,
-  IconButton
+  IconButton,
+  alpha,
+  Slide
 } from '@mui/material';
 import { 
   PointOfSale,
   ArrowBack,
   Visibility,
-  VisibilityOff
+  VisibilityOff,
+  Info,
+  Warning
 } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
 
 const CashierLogin = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [expiredMessage, setExpiredMessage] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [credentials, setCredentials] = useState({
     email: '',
     password: ''
   });
+
+  // Check for expired session messages
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    
+    // Check for expired parameter
+    if (params.get('expired') === 'true') {
+      setExpiredMessage('Your session expired due to inactivity. Please log in again.');
+    } else if (params.get('expired') === 'inactivity') {
+      setExpiredMessage('Session expired after 1 hour of inactivity. Please log in again.');
+    }
+    
+    // Check for state message (from forced logout)
+    if (location.state?.message) {
+      setExpiredMessage(location.state.message);
+    }
+    
+    // Check for termination message
+    if (params.get('terminated') === 'true') {
+      setExpiredMessage('Your session was terminated. Please log in again.');
+    }
+  }, [location]);
+
+  // Clear auth data on component mount if there's an expired message
+  useEffect(() => {
+    if (expiredMessage) {
+      // Clear any stale auth data
+      localStorage.removeItem('cashierData');
+      localStorage.removeItem('cashierToken');
+      localStorage.removeItem('token');
+      localStorage.removeItem('refreshToken');
+      console.log('🧹 Cleared auth data due to session expiry');
+    }
+  }, [expiredMessage]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -49,13 +90,17 @@ const CashierLogin = () => {
     
     setLoading(true);
     setError('');
+    setExpiredMessage(''); // Clear expired message on new login attempt
     
     try {
       console.log('🔐 Attempting login for:', credentials.email);
       
-      // Direct call to the main cashier login endpoint
+      const API_URL = 'http://localhost:5002/api/auth/cashier/login';
+      
+      console.log('📡 Sending request to:', API_URL);
+      
       const response = await axios.post(
-        'http://localhost:5002/api/auth/cashier/login', 
+        API_URL,
         {
           email: credentials.email.toLowerCase().trim(),
           password: credentials.password
@@ -65,15 +110,15 @@ const CashierLogin = () => {
           headers: {
             'Content-Type': 'application/json'
           },
-          withCredentials: true // Important for sessions/cookies
+          withCredentials: true
         }
       );
       
       console.log('✅ Login response:', response.data);
       
       if (response.data && response.data.success) {
-        const userData = response.data.user;
-        const token = response.data.token;
+        const userData = response.data.user || response.data.data || response.data;
+        const token = response.data.token || response.data.accessToken;
         
         console.log('✅ Login successful:', {
           name: userData.name,
@@ -83,42 +128,44 @@ const CashierLogin = () => {
 
         // Store authentication data
         const authData = {
-          _id: userData._id,
-          name: userData.name,
+          _id: userData._id || userData.id,
+          name: userData.name || 'Cashier',
           email: userData.email,
-          phone: userData.phone,
+          phone: userData.phone || '',
           role: userData.role || 'cashier',
-          status: userData.status,
-          lastLogin: userData.lastLogin,
-          shopId: userData.shopId,
-          shopName: userData.shopName,
-          shopLocation: userData.shopLocation,
+          status: userData.status || 'active',
+          lastLogin: userData.lastLogin || new Date().toISOString(),
+          shopId: userData.shopId || userData.shop?._id || null,
+          shopName: userData.shopName || userData.shop?.name || null,
+          shopLocation: userData.shopLocation || userData.shop?.location || null,
           loginTime: new Date().toISOString(),
           token: token
         };
         
         // Store in localStorage
         localStorage.setItem('cashierData', JSON.stringify(authData));
-        localStorage.setItem('cashierToken', token);
+        if (token) {
+          localStorage.setItem('cashierToken', token);
+          localStorage.setItem('token', token);
+        }
         
         // Set default axios headers for future requests
-        axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+        if (token) {
+          axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+        }
         
-        // Show success in console
         console.log('✅ Authentication data stored in localStorage');
-        
-        // Clear any previous errors
         setError('');
         
         // Navigate based on shop assignment
-        if (userData.shopId) {
+        if (authData.shopId) {
           navigate('/cashier/dashboard', { 
             replace: true,
             state: { 
               loginSuccess: true,
-              cashierName: userData.name,
-              shopId: userData.shopId,
-              shopName: userData.shopName
+              cashierName: authData.name,
+              shopId: authData.shopId,
+              shopName: authData.shopName
             }
           });
         } else {
@@ -126,7 +173,7 @@ const CashierLogin = () => {
             replace: true,
             state: { 
               loginSuccess: true,
-              cashierName: userData.name
+              cashierName: authData.name
             }
           });
         }
@@ -146,14 +193,12 @@ const CashierLogin = () => {
       
       // Detailed error handling
       if (err.code === 'ERR_NETWORK') {
-        setError('Cannot connect to the server. Make sure the backend is running on port 5002.');
-        console.log('💡 Tip: Run `npm start` in your backend directory');
+        setError('Cannot connect to the server. Please check if the backend is running.');
       } 
       else if (err.code === 'ECONNABORTED') {
         setError('Request timeout. Server might be busy. Try again.');
       }
       else if (err.response) {
-        // Server responded with error status
         const { status, data } = err.response;
         
         switch(status) {
@@ -169,6 +214,9 @@ const CashierLogin = () => {
           case 404:
             setError(data.message || 'Cashier account not found.');
             break;
+          case 405:
+            setError('Method not allowed. Please check API endpoint configuration.');
+            break;
           case 500:
             setError('Server error. Please try again later.');
             break;
@@ -176,13 +224,14 @@ const CashierLogin = () => {
             setError(data?.message || `Login failed (Status: ${status})`);
         }
         
-        // Log additional debug info
         if (data?.debug) {
           console.log('🔍 Server debug info:', data.debug);
         }
       } 
+      else if (err.message.includes('40')) {
+        setError('API endpoint not found. Please check the URL.');
+      }
       else {
-        // Other errors (no response from server)
         setError('Unable to reach server. Check your connection and try again.');
       }
     } finally {
@@ -321,21 +370,56 @@ const CashierLogin = () => {
           Sign in to access your POS system
         </Typography>
 
+        {/* Session Expired Alert */}
+        {expiredMessage && (
+          <Slide direction="down" in={!!expiredMessage} mountOnEnter unmountOnExit>
+            <Alert 
+              severity="info"
+              icon={<Info />}
+              sx={{ 
+                width: '100%', 
+                mb: 3,
+                borderRadius: 2,
+                border: `1px solid ${alpha('#2196f3', 0.3)}`,
+                backgroundColor: alpha('#2196f3', 0.1),
+                color: 'white',
+                '& .MuiAlert-icon': {
+                  color: '#2196f3'
+                }
+              }} 
+              onClose={() => setExpiredMessage('')}
+            >
+              <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                {expiredMessage}
+              </Typography>
+            </Alert>
+          </Slide>
+        )}
+
         {/* Error Alert */}
         {error && (
           <Alert 
             severity="error"
+            icon={<Warning />}
             sx={{ 
               width: '100%', 
               mb: 3,
               borderRadius: 2,
-              backgroundColor: 'rgba(239, 68, 68, 0.1)',
+              backgroundColor: alpha('#ef5350', 0.1),
               color: 'white',
-              border: '1px solid rgba(239, 68, 68, 0.3)'
+              border: `1px solid ${alpha('#ef5350', 0.3)}`,
+              '& .MuiAlert-icon': {
+                color: '#ef5350'
+              },
+              '& .MuiAlert-message': {
+                width: '100%'
+              }
             }} 
             onClose={() => setError('')}
           >
-            {error}
+            <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+              {error}
+            </Typography>
           </Alert>
         )}
 

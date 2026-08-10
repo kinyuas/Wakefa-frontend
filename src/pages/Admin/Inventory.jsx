@@ -272,52 +272,56 @@ const Inventory = () => {
     
     return 'Unknown Shop';
   }, [shops]);
-
-  // Fetch inventory data from products API
-  const fetchInventory = useCallback(async () => {
-    try {
-      setFetching(true);
-      setError(null);
-      console.log('🔄 Fetching inventory data...');
-      
-      const response = await productAPI.getAll();
-      console.log('📦 Raw inventory API response:', response);
-      
-      const inventoryData = handleApiResponse(response, 'products');
-      console.log('🔄 Processed inventory data:', inventoryData);
-      
-      if (inventoryData && Array.isArray(inventoryData)) {
-        console.log('✅ Inventory loaded:', inventoryData.length);
-        setInventory(inventoryData);
-        calculateStats(inventoryData);
-      } else if (inventoryData && typeof inventoryData === 'object') {
-        const possibleArrays = Object.values(inventoryData).filter(value => Array.isArray(value));
-        if (possibleArrays.length > 0) {
-          const inventoryArray = possibleArrays[0];
-          console.log('✅ Inventory extracted from object:', inventoryArray.length);
-          setInventory(inventoryArray);
-          calculateStats(inventoryArray);
-        } else {
-          const errorMsg = 'No products array found in response';
-          setError(errorMsg);
-          console.error('❌ Inventory API error:', errorMsg);
-        }
+// In Inventory.jsx - Update the fetchInventory function
+const fetchInventory = useCallback(async () => {
+  try {
+    setFetching(true);
+    setError(null);
+    console.log('🔄 Fetching inventory data...');
+    
+    // Request ALL products with a high limit
+    const response = await productAPI.getAll({ 
+      page: 1, 
+      limit: 9999  // ← Request up to 9999 products
+    });
+    
+    console.log('📦 Raw inventory API response:', response);
+    
+    const inventoryData = handleApiResponse(response, 'products');
+    console.log('🔄 Processed inventory data:', inventoryData);
+    
+    if (inventoryData && Array.isArray(inventoryData)) {
+      console.log('✅ Inventory loaded:', inventoryData.length);
+      setInventory(inventoryData);
+      calculateStats(inventoryData);
+    } else if (inventoryData && typeof inventoryData === 'object') {
+      const possibleArrays = Object.values(inventoryData).filter(value => Array.isArray(value));
+      if (possibleArrays.length > 0) {
+        const inventoryArray = possibleArrays[0];
+        console.log('✅ Inventory extracted from object:', inventoryArray.length);
+        setInventory(inventoryArray);
+        calculateStats(inventoryArray);
       } else {
-        const errorMsg = 'Invalid inventory data format';
+        const errorMsg = 'No products array found in response';
         setError(errorMsg);
         console.error('❌ Inventory API error:', errorMsg);
       }
-    } catch (error) {
-      console.error('❌ Failed to fetch inventory:', error);
-      const errorMessage = error.response?.data?.error || 
-                          error.response?.data?.message || 
-                          error.message || 
-                          'Failed to load inventory data. Please check your connection.';
-      setError(errorMessage);
-    } finally {
-      setFetching(false);
+    } else {
+      const errorMsg = 'Invalid inventory data format';
+      setError(errorMsg);
+      console.error('❌ Inventory API error:', errorMsg);
     }
-  }, [calculateStats, handleApiResponse]);
+  } catch (error) {
+    console.error('❌ Failed to fetch inventory:', error);
+    const errorMessage = error.response?.data?.error || 
+                        error.response?.data?.message || 
+                        error.message || 
+                        'Failed to load inventory data. Please check your connection.';
+    setError(errorMessage);
+  } finally {
+    setFetching(false);
+  }
+}, [calculateStats, handleApiResponse]);
 
   // Fetch both inventory and shops on component mount
   useEffect(() => {

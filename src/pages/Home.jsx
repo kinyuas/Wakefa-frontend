@@ -1,3 +1,4 @@
+// src/pages/Home.jsx
 import { 
   Container,
   Box,
@@ -14,7 +15,12 @@ import {
 import { Link, useNavigate } from 'react-router-dom';
 import { PointOfSale, AdminPanelSettings, Security, Speed } from '@mui/icons-material';
 import { useState, useEffect } from 'react';
-import { ROLES } from '../config/config';
+
+// Define roles locally instead of importing from config
+const ROLES = {
+  ADMIN: 'admin',
+  CASHIER: 'cashier'
+};
 
 const Home = () => {
   const navigate = useNavigate();
@@ -145,7 +151,7 @@ const Home = () => {
               mb: 1
             }}
           >
-            Demo Shop
+           WADAVE SUPERMARKET
           </Typography>
           <Typography 
             variant="h6" 
@@ -377,8 +383,7 @@ const Home = () => {
             {/* Footer Note */}
             <Box sx={{ mt: 2, textAlign: 'center' }}>
               <Typography variant="caption" sx={{ color: alpha('#fff', 0.6) }}>
-        Fusion XE POS: Streamlining Your Business.
- Developed by Stancylus Kalong'o | Contact: 0746919850
+                Fusion XE POS: Streamlining Your Business. Developed by Stancylus Kalong'o | Contact:0746919850
               </Typography>
             </Box>
           </Box>
@@ -389,11 +394,3 @@ const Home = () => {
 };
 
 export default Home;
-
-// Powerful, Easy-to-Use Point of Sale Systems.
-// Custom Developed by Fusion XE | 0111999685
-
-
-
-//   Fusion XE POS: Streamlining Your Business.
-// Developed by Stancylus Kalong'o | Contact: 0746919850
