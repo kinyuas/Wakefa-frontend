@@ -95,7 +95,7 @@ const CashierLogin = () => {
     try {
       console.log('🔐 Attempting login for:', credentials.email);
       
-      const API_URL = 'http://localhost:5002/api/auth/cashier/login';
+      const API_URL = `${process.env.REACT_APP_API_BASE_URL}/auth/cashier/login`;
       
       console.log('📡 Sending request to:', API_URL);
       
