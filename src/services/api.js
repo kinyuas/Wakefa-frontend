@@ -67,6 +67,10 @@ const handleApiError = (error, context = {}, silent = false) => {
     return error.response.data.message;
   }
   
+  if (error.response?.data?.error) {
+    return error.response.data.error;
+  }
+  
   return error.message || 'An error occurred.';
 };
 
@@ -609,7 +613,8 @@ const createApiInstance = (baseURL = API_CONFIG.baseURL, customTimeout = null) =
       'Content-Type': 'application/json',
       'X-Requested-With': 'XMLHttpRequest'
     },
-    validateStatus: (status) => status >= 200 && status < 500
+    // ✅ FIX: Only 2xx are treated as success. Everything else throws.
+    validateStatus: (status) => status >= 200 && status < 300
   });
 
   instance.interceptors.request.use(
@@ -721,7 +726,7 @@ const createApiInstance = (baseURL = API_CONFIG.baseURL, customTimeout = null) =
       
       console.error(`❌ API Error: ${error.config?.method?.toUpperCase()} ${error.config?.url}`, {
         status: error.response?.status,
-        message: error.response?.data?.message || error.message,
+        message: error.response?.data?.message || error.response?.data?.error || error.message,
         code: error.code
       });
       
@@ -878,7 +883,7 @@ export const silentAPI = {
   }
 };
 
-// ==================== AUTH API SERVICE - WITH ADMIN VERIFICATION CODE LOGGING ====================
+// ==================== AUTH API SERVICE ====================
 
 export const authAPI = {
   tokenManager: tokenManager,
@@ -907,18 +912,13 @@ export const authAPI = {
   requestSecureCode: async (emailData) => {
     try {
       console.log('📧 Requesting secure code for:', emailData.email);
-      
-      // Log the email data being sent
       console.log('📤 Request payload:', emailData);
       
       const response = await fastApi.post('/auth/request-code', emailData);
       
-      // Log the full response
       console.log('📥 Secure code response:', response.data);
       
-      // Check if this is a development/test environment and we can log the code
       if (IS_DEVELOPMENT || process.env.NODE_ENV === 'development') {
-        // Try to extract code from different possible response structures
         if (response.data.code) {
           console.log('🔐 ADMIN VERIFICATION CODE:', response.data.code);
           console.log('📋 Use this code to complete verification');
@@ -926,7 +926,6 @@ export const authAPI = {
           console.log('🔐 ADMIN VERIFICATION CODE:', response.data.data.code);
           console.log('📋 Use this code to complete verification');
         } else if (response.data.message && response.data.message.includes('code')) {
-          // Some APIs return the code in the message
           const codeMatch = response.data.message.match(/\b\d{6}\b/);
           if (codeMatch) {
             console.log('🔐 ADMIN VERIFICATION CODE:', codeMatch[0]);
@@ -941,7 +940,6 @@ export const authAPI = {
     } catch (error) {
       console.error('❌ Secure code request error:', error);
       
-      // Even on error, try to log any code that might be in the error response
       if (error.response && error.response.data) {
         console.log('⚠️ Error response data:', error.response.data);
         
@@ -961,7 +959,7 @@ export const authAPI = {
   verifySecureCode: async (codeData) => {
     try {
       console.log('🔐 Verifying secure code for:', codeData.email);
-      console.log('📤 Verification payload:', { ...codeData, code: '***' }); // Hide code in logs for security
+      console.log('📤 Verification payload:', { ...codeData, code: '***' });
       
       const response = await fastApi.post('/auth/verify-code', codeData);
       const data = response.data;
@@ -993,10 +991,8 @@ export const authAPI = {
     }
   },
 
-  // Special method for development that directly returns a test code
   getTestVerificationCode: (email) => {
     if (IS_DEVELOPMENT) {
-      // Generate a random 6-digit code for testing
       const testCode = Math.floor(100000 + Math.random() * 900000).toString();
       console.log('🧪 TEST ADMIN VERIFICATION CODE for', email, ':', testCode);
       console.log('📋 Use this code for testing (development only)');
@@ -1652,7 +1648,7 @@ export const cashierAnalyticsAPI = {
   }
 };
 
-// ==================== SHOP API ====================
+// ==================== SHOP API (UPDATED WITH DEBUG LOGS) ====================
 
 export const shopAPI = {
   getAll: async (params = {}) => {
@@ -1726,16 +1722,29 @@ export const shopAPI = {
 
   create: async (data) => {
     try {
-      console.log('🆕 Creating shop:', data.name);
+      console.log('🆕 Creating shop with data:', data);
       
       const response = await quickApi.post('/shops', data);
+      
+      // ✅ DEBUG LOGS: See exactly what came back
+      console.log('📥 Full POST response:', response);
+      console.log('📥 Response data:', response.data);
+      console.log('📥 Response status:', response.status);
+      console.log('📥 Response config URL:', response.config?.url);
+      
       if (cache && cache.clearAll) {
         cache.clearAll();
       }
-      console.log('✅ Shop created');
+      console.log('✅ Shop created successfully');
       return response.data?.data || response.data;
     } catch (error) {
       console.error('❌ Error creating shop:', error);
+      console.error('❌ Error message:', error.message);
+      console.error('❌ Error response status:', error.response?.status);
+      console.error('❌ Error response data:', error.response?.data);
+      console.error('❌ Error config URL:', error.config?.url);
+      console.error('❌ Error config baseURL:', error.config?.baseURL);
+      
       throw new Error(handleApiError(error, {}, true));
     }
   },

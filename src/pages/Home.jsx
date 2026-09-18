@@ -151,7 +151,7 @@ const Home = () => {
               mb: 1
             }}
           >
-           WADAVE SUPERMARKET
+           WAKEFA SHOP
           </Typography>
           <Typography 
             variant="h6" 

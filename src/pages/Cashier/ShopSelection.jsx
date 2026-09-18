@@ -1,247 +1,101 @@
-// src/pages/Cashier/ShopSelection.jsx - UPDATED VERSION
-import React, { useState, useEffect } from 'react';
+// src/pages/Cashier/ShopSelection.jsx — Clean rewrite (dedupe + auto-select single shop)
+import React, { useState, useEffect, useRef } from 'react';
 import {
-  Container,
-  Box,
-  Card,
-  Button,
-  Typography,
-  CircularProgress,
-  Alert,
-  Avatar,
-  Chip,
-  Divider,
-  Paper,
-  alpha,
-  useTheme,
-  useMediaQuery,
-  Fade,
-  Slide,
-  Zoom,
-  Grid
+  Container, Box, Card, Button, Typography, CircularProgress,
+  Alert, Avatar, Chip, Divider, Paper, alpha, useTheme, useMediaQuery, Fade
 } from '@mui/material';
 import {
-  Store,
-  Person,
-  Logout,
-  PointOfSale,
-  CheckCircle,
-  Warning,
-  LocationOn,
-  WorkspacePremium,
-  Security,
-  Speed,
-  Refresh
+  Store, Person, Logout, PointOfSale, CheckCircle,
+  Warning, LocationOn, WorkspacePremium, Refresh
 } from '@mui/icons-material';
 import { shopAPI, authAPI } from '../../services/api';
 import { useNavigate } from 'react-router-dom';
+
+// ============================================================
+// THEME COLORS
+// ============================================================
+const C = {
+  primary: { main: '#4F46E5', light: '#818CF8', gradient: 'linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%)' },
+  cashier: { main: '#10B981', light: '#34D399', dark: '#059669', gradient: 'linear-gradient(135deg, #10B981 0%, #34D399 100%)' },
+  error:   { main: '#EF4444', light: '#F87171' },
+  warning: { main: '#F59E0B', light: '#FBBF24' },
+  bg:      { main: '#0F172A', paper: '#1E293B', card: '#334155' },
+  text:    { primary: '#FFFFFF', secondary: '#CBD5E1' }
+};
 
 const ShopSelection = () => {
   const navigate = useNavigate();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
-  
+
   const [shops, setShops] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [cashier, setCashier] = useState(null);
-  const [selectingShop, setSelectingShop] = useState(null);
-  const [animatedShops, setAnimatedShops] = useState([]);
+  const [selectingId, setSelectingId] = useState(null);
+  const [autoSelected, setAutoSelected] = useState(false);
 
-  const colors = {
-    primary: {
-      main: '#4F46E5',
-      light: '#6366F1',
-      dark: '#4338CA',
-      gradient: 'linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%)',
-      glow: '0 0 20px rgba(79, 70, 229, 0.4)'
-    },
-    cashier: {
-      main: '#10B981',
-      light: '#34D399',
-      dark: '#059669',
-      gradient: 'linear-gradient(135deg, #10B981 0%, #34D399 100%)',
-      glow: '0 0 20px rgba(16, 185, 129, 0.4)'
-    },
-    error: {
-      main: '#EF4444',
-      light: '#F87171',
-      dark: '#DC2626',
-      gradient: 'linear-gradient(135deg, #EF4444 0%, #F87171 100%)'
-    },
-    warning: {
-      main: '#F59E0B',
-      light: '#FBBF24',
-      dark: '#D97706',
-      gradient: 'linear-gradient(135deg, #F59E0B 0%, #FBBF24 100%)'
-    },
-    background: {
-      main: '#0F172A',
-      light: '#1E293B',
-      paper: '#1E293B',
-      card: '#334155'
-    },
-    text: {
-      primary: '#FFFFFF',
-      secondary: '#CBD5E1',
-      accent: '#60A5FA'
-    }
-  };
+  // 🔒 Guard so auto-select doesn't fire twice in StrictMode
+  const autoSelectFired = useRef(false);
 
-  const styles = {
-    container: {
-      px: isMobile ? 1.5 : 3,
-      py: isMobile ? 2 : 3,
-      minHeight: '100vh',
-      background: colors.background.main,
-      display: 'flex',
-      flexDirection: 'column',
-      justifyContent: 'center'
-    },
-    card: {
-      borderRadius: isMobile ? 16 : 20,
-      boxShadow: '0 10px 40px rgba(0,0,0,0.4)',
-      border: `1px solid ${alpha(colors.primary.main, 0.3)}`,
-      background: colors.background.paper,
-      overflow: 'hidden',
-      backdropFilter: 'blur(20px)',
-      position: 'relative',
-      '&::before': {
-        content: '""',
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        height: '4px',
-        background: colors.cashier.gradient,
-        zIndex: 1
-      }
-    },
-    shopCard: {
-      padding: isMobile ? 2 : 3,
-      borderRadius: isMobile ? 12 : 16,
-      cursor: 'pointer',
-      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-      border: `1px solid ${alpha(colors.primary.main, 0.2)}`,
-      background: `linear-gradient(135deg, ${alpha(colors.background.card, 0.8)} 0%, ${alpha(colors.background.card, 0.6)} 100%)`,
-      position: 'relative',
-      overflow: 'hidden',
-      '&::before': {
-        content: '""',
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        height: '2px',
-        background: colors.cashier.gradient,
-        transform: 'scaleX(0)',
-        transition: 'transform 0.3s ease'
-      },
-      '&:hover::before': {
-        transform: 'scaleX(1)'
-      }
-    }
-  };
-
+  // ============================================================
+  // INIT
+  // ============================================================
   useEffect(() => {
-    initializeCashier();
-    fetchShops();
-  }, []);
-
-  useEffect(() => {
-    if (shops.length > 0) {
-      const timers = shops.map((_, index) => {
-        return setTimeout(() => {
-          setAnimatedShops(prev => [...prev, shops[index]]);
-        }, index * 100);
-      });
-      return () => timers.forEach(timer => clearTimeout(timer));
-    }
-  }, [shops]);
-
-  const initializeCashier = () => {
     try {
-      const cashierData = JSON.parse(localStorage.getItem('cashierData'));
-      if (!cashierData) {
-        navigate('/cashier/login');
-        return;
-      }
-      setCashier(cashierData);
-    } catch (error) {
-      console.error('Error initializing cashier:', error);
+      const raw = localStorage.getItem('cashierData');
+      if (!raw) return navigate('/cashier/login');
+      const data = JSON.parse(raw);
+      if (!data?._id && !data?.id) return navigate('/cashier/login');
+      setCashier(data);
+    } catch {
       navigate('/cashier/login');
     }
-  };
+  }, [navigate]);
 
+  // ============================================================
+  // FETCH SHOPS (dedupe by _id)
+  // ============================================================
   const fetchShops = async () => {
+    setLoading(true);
+    setError(null);
     try {
-      setLoading(true);
-      setError(null);
-      setAnimatedShops([]);
-      
-      // Call the API to get shops
       const response = await shopAPI.getAll();
-      
-      console.log('🔄 Fetching shops from API...');
-      
-      let shopsData = [];
-      
-      // Handle different response structures
-      if (response && typeof response === 'object') {
-        if (Array.isArray(response.data)) {
-          shopsData = response.data;
-        } else if (Array.isArray(response)) {
-          shopsData = response;
-        } else if (response.data && typeof response.data === 'object') {
-          shopsData = Object.values(response.data);
-        }
-      }
-      
-      const validatedShops = Array.isArray(shopsData) ? shopsData : [];
-      
-      console.log(`📊 Raw shops data received: ${validatedShops.length} items`);
-      
-      // Remove duplicates by _id AND name for extra safety
-      const uniqueShopsMap = new Map();
-      
-      const safeShops = validatedShops
-        .filter(shop => shop && typeof shop === 'object' && shop._id && shop.name)
-        .map(shop => ({
-          _id: shop._id || `shop-${Math.random().toString(36).substr(2, 9)}`,
-          name: shop.name || 'Unnamed Shop',
-          location: shop.location || 'Location not specified',
-          description: shop.description || '',
-          status: shop.status || 'active',
-          createdAt: shop.createdAt || new Date().toISOString()
-        }))
-        .filter(shop => {
-          // Create a unique key using both _id and normalized name
-          const shopKey = `${shop._id}-${shop.name.trim().toLowerCase()}`;
-          
-          if (uniqueShopsMap.has(shopKey)) {
-            console.log(`⚠️ Skipping duplicate shop: ${shop.name} (${shop._id})`);
-            return false;
-          }
-          
-          uniqueShopsMap.set(shopKey, shop);
-          return true;
+
+      // Normalize response → array
+      let raw = [];
+      if (Array.isArray(response)) raw = response;
+      else if (Array.isArray(response?.data)) raw = response.data;
+      else if (response?.data && typeof response.data === 'object') raw = Object.values(response.data);
+      else if (Array.isArray(response?.shops)) raw = response.shops;
+
+      // Clean + dedupe strictly by _id
+      const map = new Map();
+      for (const s of raw) {
+        if (!s || typeof s !== 'object' || !s._id || !s.name) continue;
+        const id = String(s._id);
+        if (map.has(id)) continue;                // ← eliminates duplicates entirely
+        map.set(id, {
+          _id: id,
+          name: String(s.name).trim(),
+          location: String(s.location || 'Location not specified').trim(),
+          description: String(s.description || '').trim(),
+          status: s.status || 'active',
+          createdAt: s.createdAt || new Date().toISOString()
         });
-      
-      console.log(`✅ Unique shops after filtering: ${safeShops.length} shops`);
-      
-      // Log shop names for debugging
-      safeShops.forEach(shop => {
-        console.log(`🏪 Shop: ${shop.name} (ID: ${shop._id})`);
-      });
-      
-      setShops(safeShops);
-      
-      if (safeShops.length === 0) {
-        setError('No shops available. Please contact administrator.');
       }
-      
-    } catch (error) {
-      console.error('❌ Error fetching shops:', error);
+
+      const unique = Array.from(map.values());
+      // Sort alphabetically for a predictable UI
+      unique.sort((a, b) => a.name.localeCompare(b.name));
+
+      setShops(unique);
+
+      if (unique.length === 0) {
+        setError('No shops available. Please contact your administrator.');
+      }
+    } catch (err) {
+      console.error('❌ Failed to load shops:', err);
       setError('Failed to load shops. Please check your connection and try again.');
       setShops([]);
     } finally {
@@ -249,619 +103,455 @@ const ShopSelection = () => {
     }
   };
 
-  const handleShopSelect = async (shop) => {
-    if (!shop || !shop._id) {
-      setError('Invalid shop selection');
-      return;
-    }
-    
-    setSelectingShop(shop._id);
-    
-    try {
-      const cashierData = JSON.parse(localStorage.getItem('cashierData')) || {};
-      if (!cashierData.id && !cashierData._id) {
-        throw new Error('Cashier session expired');
-      }
+  useEffect(() => { fetchShops(); }, []);
 
-      const updatedCashierData = {
+  // ============================================================
+  // AUTO-SELECT when there is exactly ONE shop
+  // ============================================================
+  useEffect(() => {
+    if (loading) return;
+    if (shops.length !== 1) return;
+    if (autoSelectFired.current) return;
+    if (!cashier) return;
+
+    autoSelectFired.current = true;
+    setAutoSelected(true);
+    console.log('🎯 Only one shop — auto-selecting:', shops[0].name);
+
+    // Short delay so the user sees the "auto-selecting" state
+    setTimeout(() => handleShopSelect(shops[0], { silent: true }), 900);
+  }, [loading, shops, cashier]);
+
+  // ============================================================
+  // SELECT SHOP
+  // ============================================================
+  const handleShopSelect = async (shop, { silent = false } = {}) => {
+    if (!shop?._id || selectingId) return;
+
+    setSelectingId(shop._id);
+    try {
+      const raw = localStorage.getItem('cashierData');
+      const cashierData = raw ? JSON.parse(raw) : {};
+      if (!cashierData?._id && !cashierData?.id) throw new Error('Session expired');
+
+      const updated = {
         ...cashierData,
         lastShop: shop._id,
         shopName: shop.name,
         shopLocation: shop.location,
-        selectedAt: new Date().toISOString(),
         shopDescription: shop.description,
+        selectedAt: new Date().toISOString(),
         sessionStart: new Date().toISOString()
       };
-      
-      localStorage.setItem('cashierData', JSON.stringify(updatedCashierData));
-      setCashier(updatedCashierData);
-      
-      setTimeout(() => {
-        navigate('/cashier/dashboard', { 
-          replace: true,
-          state: { 
-            shopSelected: true,
-            shopName: shop.name 
-          }
-        });
-      }, 1000);
-      
-    } catch (error) {
-      console.error('Error selecting shop:', error);
-      setError(error.message || 'Failed to select shop. Please try again.');
-    } finally {
-      setSelectingShop(null);
+
+      localStorage.setItem('cashierData', JSON.stringify(updated));
+      setCashier(updated);
+
+      if (!silent) {
+        // Small UX delay for the "Selecting…" spinner
+        setTimeout(() => navigate('/cashier/dashboard', { replace: true }), 500);
+      } else {
+        navigate('/cashier/dashboard', { replace: true });
+      }
+    } catch (err) {
+      console.error('Error selecting shop:', err);
+      setError(err.message || 'Failed to select shop. Please try again.');
+      setSelectingId(null);
     }
   };
 
+  // ============================================================
+  // LOGOUT
+  // ============================================================
   const handleLogout = () => {
-    try {
-      authAPI.logout();
-      localStorage.removeItem('cashierData');
-      navigate('/cashier/login', { replace: true });
-    } catch (error) {
-      console.error('Logout error:', error);
-      localStorage.removeItem('cashierData');
-      navigate('/cashier/login', { replace: true });
-    }
+    try { authAPI.logout(); } catch {}
+    localStorage.removeItem('cashierData');
+    localStorage.removeItem('cashierToken');
+    localStorage.removeItem('token');
+    navigate('/cashier/login', { replace: true });
   };
 
-  const handleRetry = () => {
-    setError(null);
-    fetchShops();
-  };
-
+  // ============================================================
+  // LOADING SCREEN
+  // ============================================================
   if (loading) {
     return (
-      <Box sx={{ 
-        display: 'flex', 
-        justifyContent: 'center', 
-        alignItems: 'center', 
-        height: '100vh',
-        flexDirection: 'column',
-        background: colors.background.main,
-        px: 2
+      <Box sx={{
+        display: 'flex', justifyContent: 'center', alignItems: 'center',
+        height: '100vh', flexDirection: 'column',
+        background: C.bg.main, px: 2, gap: 2
       }}>
-        <Box sx={{ position: 'relative', mb: 3 }}>
-          <CircularProgress 
-            size={80} 
-            thickness={4}
-            sx={{ 
-              color: colors.cashier.main,
-              filter: 'drop-shadow(0 0 8px rgba(16, 185, 129, 0.5))'
-            }} 
-          />
-          <Store 
-            sx={{ 
-              position: 'absolute',
-              top: '50%',
-              left: '50%',
-              transform: 'translate(-50%, -50%)',
-              color: colors.cashier.light,
-              fontSize: 32
-            }} 
-          />
+        <Box sx={{ position: 'relative' }}>
+          <CircularProgress size={70} thickness={4} sx={{ color: C.cashier.main }} />
+          <Store sx={{
+            position: 'absolute', top: '50%', left: '50%',
+            transform: 'translate(-50%, -50%)',
+            color: C.cashier.light, fontSize: 28
+          }} />
         </Box>
-        
-        <Fade in={true}>
-          <Typography 
-            variant={isMobile ? "h6" : "h5"} 
-            sx={{ 
-              fontWeight: 'bold',
-              color: colors.text.primary,
-              mb: 1,
-              textAlign: 'center'
-            }}
-          >
-            Loading Available Shops
-          </Typography>
-        </Fade>
-        
-        <Fade in={true} style={{ transitionDelay: '200ms' }}>
-          <Typography 
-            variant="body2" 
-            sx={{ 
-              color: colors.text.secondary,
-              textAlign: 'center',
-              maxWidth: 400
-            }}
-          >
-            Gathering shop information for {cashier?.name || 'Cashier'}...
-          </Typography>
-        </Fade>
+        <Typography variant="h6" sx={{ color: C.text.primary, fontWeight: 600 }}>
+          Loading shops…
+        </Typography>
+        <Typography variant="body2" sx={{ color: C.text.secondary }}>
+          Preparing your workspace{cashier?.name ? `, ${cashier.name}` : ''}
+        </Typography>
       </Box>
     );
   }
 
-  return (
-    <Container 
-      maxWidth={isMobile ? "sm" : "md"}
-      sx={styles.container}
-    >
-      <Slide direction="up" in={!loading} mountOnEnter unmountOnExit>
-        <Card sx={styles.card}>
-          {/* Header Section */}
-          <Box sx={{ 
-            textAlign: 'center', 
-            padding: isMobile ? 3 : 4,
-            background: `linear-gradient(135deg, ${alpha(colors.primary.main, 0.15)} 0%, ${alpha(colors.cashier.main, 0.15)} 100%)`,
-            position: 'relative',
-            overflow: 'hidden'
+  // ============================================================
+  // AUTO-SELECT SCREEN (single shop)
+  // ============================================================
+  if (autoSelected && shops.length === 1) {
+    const shop = shops[0];
+    return (
+      <Box sx={{
+        minHeight: '100vh', background: C.bg.main,
+        display: 'flex', justifyContent: 'center', alignItems: 'center', px: 2
+      }}>
+        <Card sx={{
+          maxWidth: 420, width: '100%', p: 4, textAlign: 'center',
+          borderRadius: 4, background: C.bg.paper,
+          border: `1px solid ${alpha(C.cashier.main, 0.3)}`,
+          boxShadow: '0 20px 40px rgba(0,0,0,0.4)'
+        }}>
+          <Avatar sx={{
+            width: 80, height: 80, mx: 'auto', mb: 2,
+            background: C.cashier.gradient, boxShadow: `0 0 30px ${alpha(C.cashier.main, 0.4)}`
           }}>
-            
-            {selectingShop && (
-              <Zoom in={selectingShop}>
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    top: 16,
-                    right: 16,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 1,
-                    background: alpha(colors.cashier.main, 0.2),
-                    padding: '4px 12px',
-                    borderRadius: 20,
-                    border: `1px solid ${alpha(colors.cashier.main, 0.3)}`
-                  }}
-                >
-                  <CircularProgress size={14} sx={{ color: colors.cashier.light }} />
-                  <Typography variant="caption" sx={{ color: colors.cashier.light, fontWeight: 'medium' }}>
-                    Selecting...
-                  </Typography>
-                </Box>
-              </Zoom>
-            )}
-            
-            <Box sx={{ position: 'relative', mb: 2 }}>
-              <Avatar 
-                sx={{ 
-                  width: isMobile ? 70 : 90, 
-                  height: isMobile ? 70 : 90, 
-                  margin: '0 auto',
-                  background: colors.cashier.gradient,
-                  boxShadow: colors.cashier.glow,
-                  border: `3px solid ${alpha('#fff', 0.2)}`
-                }}
-              >
-                <Person sx={{ fontSize: isMobile ? 36 : 44 }} />
-              </Avatar>
-              <Chip 
-                icon={<WorkspacePremium />}
-                label="Verified Cashier"
-                size="small"
+            <Store sx={{ fontSize: 40 }} />
+          </Avatar>
+          <Typography variant="h5" sx={{ color: '#fff', fontWeight: 700, mb: 1 }}>
+            Opening {shop.name}
+          </Typography>
+          <Typography variant="body2" sx={{ color: C.text.secondary, mb: 3 }}>
+            You have one shop, so we're taking you straight in.
+          </Typography>
+          <CircularProgress size={28} sx={{ color: C.cashier.light }} />
+        </Card>
+      </Box>
+    );
+  }
+
+  // ============================================================
+  // MAIN UI
+  // ============================================================
+  return (
+    <Container maxWidth={isMobile ? 'sm' : 'md'} sx={{
+      minHeight: '100vh', background: C.bg.main,
+      px: isMobile ? 2 : 3, py: isMobile ? 3 : 4,
+      display: 'flex', flexDirection: 'column', justifyContent: 'center'
+    }}>
+      <Card sx={{
+        borderRadius: isMobile ? 3 : 4,
+        background: C.bg.paper,
+        border: `1px solid ${alpha(C.primary.main, 0.3)}`,
+        boxShadow: '0 20px 40px rgba(0,0,0,0.4)',
+        overflow: 'hidden',
+        position: 'relative',
+        '&::before': {
+          content: '""', position: 'absolute', top: 0, left: 0, right: 0,
+          height: 4, background: C.cashier.gradient
+        }
+      }}>
+        {/* ---------- HEADER ---------- */}
+        <Box sx={{
+          textAlign: 'center', px: isMobile ? 2 : 4, pt: isMobile ? 3 : 4, pb: 2,
+          background: `linear-gradient(135deg, ${alpha(C.primary.main, 0.15)} 0%, ${alpha(C.cashier.main, 0.15)} 100%)`
+        }}>
+          <Avatar sx={{
+            width: isMobile ? 64 : 76, height: isMobile ? 64 : 76,
+            mx: 'auto', mb: 1.5, background: C.cashier.gradient,
+            boxShadow: `0 0 24px ${alpha(C.cashier.main, 0.35)}`
+          }}>
+            <Person sx={{ fontSize: isMobile ? 32 : 38 }} />
+          </Avatar>
+          <Chip
+            icon={<WorkspacePremium sx={{ fontSize: 14 }} />}
+            label="Verified Cashier"
+            size="small"
+            sx={{
+              background: C.cashier.gradient, color: '#fff',
+              fontWeight: 700, fontSize: '0.7rem', mb: 1.5, height: 22
+            }}
+          />
+          <Typography variant={isMobile ? 'h6' : 'h5'} sx={{
+            color: '#fff', fontWeight: 800, mb: 0.5
+          }}>
+            Welcome back, {cashier?.name || 'Cashier'} 👋
+          </Typography>
+          <Typography variant="body2" sx={{
+            color: C.text.secondary, mb: 1.5,
+            maxWidth: 460, mx: 'auto'
+          }}>
+            {shops.length === 1
+              ? 'Taking you to your shop…'
+              : 'Select a shop to start processing sales.'}
+          </Typography>
+          <Chip
+            icon={<Store sx={{ fontSize: 14, color: C.cashier.light }} />}
+            label={`${shops.length} ${shops.length === 1 ? 'shop' : 'shops'} available`}
+            variant="outlined"
+            sx={{
+              color: C.cashier.light,
+              borderColor: alpha(C.cashier.main, 0.4),
+              backgroundColor: alpha(C.cashier.main, 0.12),
+              fontWeight: 600
+            }}
+          />
+        </Box>
+
+        <Divider sx={{ borderColor: alpha(C.text.secondary, 0.1), my: 0 }} />
+
+        {/* ---------- BODY ---------- */}
+        <Box sx={{ p: isMobile ? 2 : 3 }}>
+          {/* Error */}
+          {error && (
+            <Fade in>
+              <Alert
+                severity="error"
+                icon={<Warning />}
                 sx={{
-                  position: 'absolute',
-                  bottom: -10,
-                  left: '50%',
-                  transform: 'translateX(-50%)',
-                  background: colors.cashier.gradient,
-                  color: 'white',
-                  fontWeight: 'bold',
-                  fontSize: '0.7rem',
-                  height: 24
+                  mb: 3, borderRadius: 2,
+                  backgroundColor: alpha(C.error.main, 0.1),
+                  color: C.error.light,
+                  border: `1px solid ${alpha(C.error.main, 0.3)}`,
+                  '& .MuiAlert-icon': { color: C.error.light }
                 }}
-              />
-            </Box>
-            
-            <Typography 
-              variant={isMobile ? "h5" : "h4"} 
-              sx={{ 
-                fontWeight: 'bold',
-                background: colors.cashier.gradient,
-                WebkitBackgroundClip: 'text',
-                WebkitTextFillColor: 'transparent',
-                backgroundClip: 'text',
-                mb: 1,
-                textShadow: '0 2px 4px rgba(0,0,0,0.1)'
-              }}
-            >
-              Welcome back, {cashier?.name || 'Cashier'}! 👋
-            </Typography>
-            
-            <Typography 
-              variant={isMobile ? "body2" : "body1"} 
-              sx={{ 
-                color: colors.text.secondary,
-                mb: 2,
-                maxWidth: 500,
-                margin: '0 auto'
-              }}
-            >
-              Select your working shop to start processing sales and manage transactions
-            </Typography>
-            
-            <Chip 
-              icon={<Store sx={{ color: colors.cashier.light }} />}
-              label={`${shops.length} unique shops available`}
-              variant="outlined"
-              sx={{ 
-                color: colors.cashier.light,
-                borderColor: alpha(colors.cashier.main, 0.4),
-                backgroundColor: alpha(colors.cashier.main, 0.15),
-                fontWeight: 'medium',
-                fontSize: isMobile ? '0.85rem' : '0.95rem',
-                padding: isMobile ? '4px 12px' : '6px 16px'
-              }}
-            />
-          </Box>
-
-          <Divider sx={{ borderColor: alpha(colors.text.secondary, 0.1), my: 1 }} />
-
-          {/* Shops Section */}
-          <Box sx={{ padding: isMobile ? 2 : 3 }}>
-            <Box sx={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              justifyContent: 'space-between',
-              mb: 3,
-              flexWrap: 'wrap',
-              gap: 1
-            }}>
-              <Typography 
-                variant={isMobile ? "h6" : "h5"} 
-                sx={{ 
-                  color: colors.text.primary,
-                  fontWeight: 'bold',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 1
-                }}
+                action={
+                  <Button size="small" onClick={fetchShops}
+                    sx={{ color: C.error.light, border: `1px solid ${alpha(C.error.light, 0.3)}` }}>
+                    Retry
+                  </Button>
+                }
               >
-                <Store sx={{ color: colors.primary.light }} />
-                Available Shops
-              </Typography>
-              
-              <Chip 
-                label={`${shops.length} Total`}
-                size="small"
-                sx={{ 
-                  background: colors.primary.gradient,
-                  color: 'white',
-                  fontWeight: 'bold',
-                  fontSize: isMobile ? '0.75rem' : '0.875rem'
-                }}
-              />
-            </Box>
+                {error}
+              </Alert>
+            </Fade>
+          )}
 
-            {error && (
-              <Zoom in={!!error}>
-                <Alert 
-                  severity="error" 
-                  icon={<Warning />}
-                  sx={{ 
-                    mb: 3,
-                    borderRadius: 2,
-                    backgroundColor: alpha(colors.error.main, 0.1),
-                    color: colors.error.light,
-                    border: `1px solid ${alpha(colors.error.main, 0.3)}`,
-                    backdropFilter: 'blur(10px)'
-                  }}
-                  action={
-                    <Button 
-                      color="inherit" 
-                      size="small" 
-                      onClick={handleRetry}
-                      sx={{
-                        color: colors.error.light,
-                        border: `1px solid ${alpha(colors.error.light, 0.3)}`,
-                        borderRadius: 1,
-                        px: 2,
-                        '&:hover': {
-                          backgroundColor: alpha(colors.error.light, 0.1)
-                        }
-                      }}
-                    >
-                      Retry
-                    </Button>
-                  }
-                >
-                  {error}
-                </Alert>
-              </Zoom>
-            )}
+          {/* Empty state */}
+          {!error && shops.length === 0 && (
+            <Alert
+              severity="warning"
+              icon={<Store />}
+              sx={{
+                borderRadius: 2,
+                backgroundColor: alpha(C.warning.main, 0.1),
+                color: C.warning.light,
+                border: `1px solid ${alpha(C.warning.main, 0.3)}`,
+                '& .MuiAlert-icon': { color: C.warning.light }
+              }}
+              action={
+                <Button size="small" onClick={fetchShops}
+                  sx={{ color: C.warning.light, border: `1px solid ${alpha(C.warning.light, 0.3)}` }}>
+                  Retry
+                </Button>
+              }
+            >
+              No shops available. Please contact your administrator.
+            </Alert>
+          )}
 
-            {!error && shops.length === 0 ? (
-              <Zoom in={shops.length === 0}>
-                <Alert
-                  severity="warning"
-                  icon={<Store />}
+          {/* Shops list */}
+          {shops.length > 0 && (
+            <>
+              <Box sx={{
+                display: 'flex', justifyContent: 'space-between',
+                alignItems: 'center', mb: 2
+              }}>
+                <Typography variant={isMobile ? 'subtitle1' : 'h6'} sx={{
+                  color: '#fff', fontWeight: 700,
+                  display: 'flex', alignItems: 'center', gap: 1
+                }}>
+                  <Store sx={{ color: C.primary.light, fontSize: 20 }} />
+                  Available Shops
+                </Typography>
+                <Chip
+                  label={`${shops.length} Total`}
+                  size="small"
                   sx={{
-                    borderRadius: 2,
-                    backgroundColor: alpha(colors.warning.main, 0.1),
-                    color: colors.warning.light,
-                    border: `1px solid ${alpha(colors.warning.main, 0.3)}`,
-                    backdropFilter: 'blur(10px)'
+                    background: C.primary.gradient, color: '#fff',
+                    fontWeight: 700, fontSize: '0.75rem'
                   }}
-                  action={
-                    <Button 
-                      color="inherit" 
-                      size="small" 
-                      onClick={handleRetry}
+                />
+              </Box>
+
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                {shops.map((shop, i) => {
+                  const isSelecting = selectingId === shop._id;
+                  const disabled = selectingId && !isSelecting;
+
+                  return (
+                    <Paper
+                      key={shop._id}
+                      elevation={0}
+                      onClick={() => !selectingId && handleShopSelect(shop)}
                       sx={{
-                        color: colors.warning.light,
-                        border: `1px solid ${alpha(colors.warning.light, 0.3)}`,
-                        borderRadius: 1,
-                        px: 2,
-                        '&:hover': {
-                          backgroundColor: alpha(colors.warning.light, 0.1)
+                        p: isMobile ? 1.8 : 2.4,
+                        borderRadius: 2.5,
+                        cursor: selectingId ? 'default' : 'pointer',
+                        opacity: disabled ? 0.55 : 1,
+                        transform: isSelecting ? 'scale(0.99)' : 'none',
+                        border: `1px solid ${alpha(C.primary.main, isSelecting ? 0.6 : 0.2)}`,
+                        background: isSelecting
+                          ? alpha(C.cashier.main, 0.12)
+                          : `linear-gradient(135deg, ${alpha(C.bg.card, 0.85)} 0%, ${alpha(C.bg.card, 0.65)} 100%)`,
+                        transition: 'all .25s cubic-bezier(.4,0,.2,1)',
+                        '&:hover': selectingId ? {} : {
+                          transform: 'translateY(-3px)',
+                          borderColor: C.primary.main,
+                          boxShadow: `0 8px 24px ${alpha(C.primary.main, 0.25)}`
                         }
                       }}
                     >
-                      Retry
-                    </Button>
-                  }
-                >
-                  No shops available. Please contact administrator or try again.
-                </Alert>
-              </Zoom>
-            ) : (
-              <Grid container spacing={2}>
-                {animatedShops.map((shop, index) => (
-                  <Grid item xs={12} key={shop._id}>
-                    <Fade in={true} style={{ transitionDelay: `${index * 100}ms` }}>
-                      <Paper
-                        sx={{
-                          ...styles.shopCard,
-                          opacity: selectingShop && selectingShop !== shop._id ? 0.6 : 1,
-                          transform: selectingShop === shop._id ? 'scale(0.98)' : 'none',
-                          '&:hover': selectingShop ? {} : {
-                            transform: 'translateY(-4px)',
-                            border: `1px solid ${colors.primary.main}`,
-                            boxShadow: colors.primary.glow,
-                            background: `linear-gradient(135deg, ${alpha(colors.background.card, 0.9)} 0%, ${alpha(colors.background.card, 0.7)} 100%)`
-                          }
-                        }}
-                        onClick={() => !selectingShop && handleShopSelect(shop)}
-                      >
-                        <Box sx={{ 
-                          display: 'flex', 
-                          alignItems: 'center',
-                          flexDirection: isMobile ? 'column' : 'row',
-                          gap: isMobile ? 2 : 3
+                      <Box sx={{
+                        display: 'flex', alignItems: 'center',
+                        flexDirection: isMobile ? 'column' : 'row',
+                        gap: isMobile ? 1.5 : 2
+                      }}>
+                        {/* Left: avatar + name */}
+                        <Box sx={{
+                          display: 'flex', alignItems: 'center', gap: 1.6,
+                          width: isMobile ? '100%' : 'auto', flex: 1, minWidth: 0
                         }}>
-                          <Box sx={{ 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            gap: 2,
-                            width: isMobile ? '100%' : 'auto'
+                          <Avatar sx={{
+                            background: i % 2 === 0 ? C.primary.gradient : C.cashier.gradient,
+                            width: isMobile ? 48 : 56, height: isMobile ? 48 : 56,
+                            fontWeight: 800, fontSize: isMobile ? '1.25rem' : '1.5rem',
+                            flexShrink: 0
                           }}>
-                            <Avatar 
-                              sx={{ 
-                                background: index % 2 === 0 ? colors.primary.gradient : colors.cashier.gradient,
-                                width: isMobile ? 60 : 70,
-                                height: isMobile ? 60 : 70,
-                                fontWeight: 'bold',
-                                fontSize: isMobile ? '1.5rem' : '1.75rem',
-                                boxShadow: '0 4px 12px rgba(0,0,0,0.2)'
-                              }}
-                            >
-                              {shop.name.charAt(0).toUpperCase()}
-                            </Avatar>
-                            <Box sx={{ flex: 1 }}>
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                                <Typography 
-                                  variant={isMobile ? "h6" : "h5"} 
-                                  sx={{ 
-                                    color: colors.text.primary,
-                                    fontWeight: 'bold'
-                                  }}
-                                >
-                                  {shop.name}
-                                </Typography>
-                                {shop.status === 'active' && (
-                                  <Chip 
-                                    icon={<CheckCircle sx={{ fontSize: 14 }} />}
-                                    label="Active"
-                                    size="small"
-                                    sx={{ 
-                                      backgroundColor: alpha(colors.cashier.main, 0.2),
-                                      color: colors.cashier.light,
-                                      fontSize: '0.7rem',
-                                      height: 22,
-                                      fontWeight: 'bold'
-                                    }}
-                                  />
-                                )}
-                              </Box>
-                              
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                                <LocationOn sx={{ fontSize: 14, color: colors.text.secondary }} />
-                                <Typography 
-                                  variant="body2" 
-                                  sx={{ 
-                                    color: colors.text.secondary
-                                  }}
-                                >
-                                  {shop.location}
-                                </Typography>
-                              </Box>
-                            </Box>
-                          </Box>
-                          
-                          <Button
-                            variant="contained"
-                            size={isMobile ? "medium" : "large"}
-                            disabled={selectingShop !== null}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleShopSelect(shop);
-                            }}
-                            sx={{
-                              background: selectingShop === shop._id 
-                                ? alpha(colors.cashier.main, 0.3)
-                                : colors.cashier.gradient,
-                              borderRadius: 2,
-                              px: isMobile ? 2 : 3,
-                              fontWeight: 'bold',
-                              minWidth: isMobile ? '100%' : 140,
-                              height: isMobile ? 44 : 48,
-                              textTransform: 'none',
-                              fontSize: isMobile ? '0.95rem' : '1rem',
-                              boxShadow: selectingShop === shop._id ? 'none' : '0 4px 15px rgba(16, 185, 129, 0.3)',
-                              '&:hover': selectingShop ? {} : {
-                                background: colors.cashier.dark,
-                                transform: 'translateY(-2px)',
-                                boxShadow: '0 8px 25px rgba(16, 185, 129, 0.4)'
-                              },
-                              '&:disabled': {
-                                background: 'rgba(255, 255, 255, 0.1)',
-                                color: 'rgba(255, 255, 255, 0.3)'
-                              }
-                            }}
-                            startIcon={
-                              selectingShop === shop._id ? (
-                                <CircularProgress size={18} color="inherit" />
-                              ) : (
-                                <PointOfSale />
-                              )
-                            }
-                          >
-                            {selectingShop === shop._id ? 'Selecting...' : 'Start POS'}
-                          </Button>
-                        </Box>
-                        
-                        {shop.description && (
-                          <Fade in={true}>
-                            <Box sx={{ 
-                              mt: 2, 
-                              pt: 2, 
-                              borderTop: `1px solid ${alpha(colors.text.secondary, 0.1)}`,
-                              display: 'flex',
-                              alignItems: 'flex-start',
-                              gap: 1
+                            {shop.name.charAt(0).toUpperCase()}
+                          </Avatar>
+                          <Box sx={{ flex: 1, minWidth: 0 }}>
+                            <Box sx={{
+                              display: 'flex', alignItems: 'center',
+                              gap: 1, flexWrap: 'wrap', mb: 0.3
                             }}>
-                              <Speed sx={{ 
-                                fontSize: 16, 
-                                color: colors.text.secondary,
-                                mt: 0.25
-                              }} />
-                              <Typography 
-                                variant="caption" 
-                                sx={{ 
-                                  color: colors.text.secondary,
-                                  fontStyle: 'italic',
-                                  lineHeight: 1.4
+                              <Typography
+                                variant={isMobile ? 'subtitle1' : 'h6'}
+                                sx={{
+                                  color: '#fff', fontWeight: 700,
+                                  whiteSpace: 'nowrap', overflow: 'hidden',
+                                  textOverflow: 'ellipsis', maxWidth: '100%'
                                 }}
                               >
-                                {shop.description}
+                                {shop.name}
+                              </Typography>
+                              {shop.status === 'active' && (
+                                <Chip
+                                  icon={<CheckCircle sx={{ fontSize: 12 }} />}
+                                  label="Active"
+                                  size="small"
+                                  sx={{
+                                    backgroundColor: alpha(C.cashier.main, 0.2),
+                                    color: C.cashier.light,
+                                    fontWeight: 700, fontSize: '0.65rem', height: 20
+                                  }}
+                                />
+                              )}
+                            </Box>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.6 }}>
+                              <LocationOn sx={{ fontSize: 13, color: C.text.secondary }} />
+                              <Typography variant="body2" sx={{
+                                color: C.text.secondary, fontSize: '0.8rem'
+                              }}>
+                                {shop.location}
                               </Typography>
                             </Box>
-                          </Fade>
-                        )}
-                        
-                        {selectingShop === shop._id && (
-                          <Fade in={selectingShop === shop._id}>
-                            <Box sx={{ 
-                              mt: 2, 
-                              display: 'flex', 
-                              alignItems: 'center', 
-                              justifyContent: 'center',
-                              gap: 1,
-                              padding: 1.5,
-                              borderRadius: 1,
-                              background: alpha(colors.cashier.main, 0.1),
-                              border: `1px solid ${alpha(colors.cashier.main, 0.2)}`
-                            }}>
-                              <CircularProgress size={16} sx={{ color: colors.cashier.light }} />
-                              <Typography variant="caption" sx={{ color: colors.cashier.light, fontWeight: 'medium' }}>
-                                Initializing POS session for {shop.name}...
-                              </Typography>
-                            </Box>
-                          </Fade>
-                        )}
-                      </Paper>
-                    </Fade>
-                  </Grid>
-                ))}
-              </Grid>
-            )}
-          </Box>
+                          </Box>
+                        </Box>
 
-          <Divider sx={{ borderColor: alpha(colors.text.secondary, 0.1), my: 1 }} />
+                        {/* Right: action button */}
+                        <Button
+                          variant="contained"
+                          disabled={Boolean(selectingId)}
+                          onClick={(e) => { e.stopPropagation(); handleShopSelect(shop); }}
+                          startIcon={isSelecting ? <CircularProgress size={16} color="inherit" /> : <PointOfSale />}
+                          sx={{
+                            background: isSelecting
+                              ? alpha(C.cashier.main, 0.3)
+                              : C.cashier.gradient,
+                            borderRadius: 2,
+                            px: 2.5,
+                            fontWeight: 700,
+                            textTransform: 'none',
+                            minWidth: isMobile ? '100%' : 130,
+                            height: isMobile ? 42 : 44,
+                            boxShadow: isSelecting ? 'none' : `0 4px 12px ${alpha(C.cashier.main, 0.3)}`,
+                            '&:hover': selectingId ? {} : {
+                              background: C.cashier.dark,
+                              transform: 'translateY(-1px)',
+                              boxShadow: `0 6px 18px ${alpha(C.cashier.main, 0.4)}`
+                            },
+                            '&:disabled': {
+                              background: 'rgba(255,255,255,0.08)',
+                              color: 'rgba(255,255,255,0.4)'
+                            }
+                          }}
+                        >
+                          {isSelecting ? 'Selecting…' : 'Start POS'}
+                        </Button>
+                      </Box>
+                    </Paper>
+                  );
+                })}
+              </Box>
+            </>
+          )}
+        </Box>
 
-          {/* Footer Section */}
-          <Box sx={{ 
-            padding: isMobile ? 2 : 3, 
-            display: 'flex',
-            flexDirection: isMobile ? 'column' : 'row',
-            justifyContent: 'center',
-            gap: 2,
-            background: alpha(colors.background.card, 0.5)
-          }}>
-            <Button
-              variant="outlined"
-              size={isMobile ? "medium" : "large"}
-              onClick={handleRetry}
-              disabled={loading}
-              startIcon={<Refresh sx={{ color: colors.cashier.light }} />}
-              sx={{
-                color: colors.cashier.light,
-                borderColor: alpha(colors.cashier.main, 0.5),
-                borderRadius: 2,
-                px: 3,
-                py: isMobile ? 1 : 1.5,
-                '&:hover': {
-                  color: 'white',
-                  borderColor: colors.cashier.light,
-                  backgroundColor: alpha(colors.cashier.main, 0.15),
-                  transform: 'translateY(-1px)'
-                },
-                '&:disabled': {
-                  opacity: 0.5
-                }
-              }}
-            >
-              Refresh Shops
-            </Button>
-            
-            <Button
-              variant="outlined"
-              size={isMobile ? "medium" : "large"}
-              onClick={handleLogout}
-              startIcon={<Logout sx={{ color: colors.text.secondary }} />}
-              sx={{
-                color: colors.text.secondary,
-                borderColor: alpha(colors.text.secondary, 0.3),
-                borderRadius: 2,
-                px: 3,
-                py: isMobile ? 1 : 1.5,
-                '&:hover': {
-                  color: 'white',
-                  borderColor: 'white',
-                  backgroundColor: alpha(colors.text.secondary, 0.1),
-                  transform: 'translateY(-1px)'
-                }
-              }}
-            >
-              Logout
-            </Button>
-          </Box>
-        </Card>
-      </Slide>
+        <Divider sx={{ borderColor: alpha(C.text.secondary, 0.1) }} />
 
-      {isMobile && (
-        <Fade in={true}>
-          <Box sx={{ 
-            mt: 2, 
-            textAlign: 'center',
-            padding: 2,
-            borderRadius: 2,
-            background: alpha(colors.primary.main, 0.1),
-            border: `1px solid ${alpha(colors.primary.main, 0.2)}`
-          }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, mb: 0.5 }}>
-              <Security sx={{ fontSize: 16, color: colors.primary.light }} />
-              <Typography variant="caption" sx={{ color: colors.text.secondary, fontWeight: 'medium' }}>
-                Secure Session Active
-              </Typography>
-            </Box>
-            <Typography variant="caption" sx={{ color: colors.text.secondary, fontSize: '0.7rem' }}>
-              Your session is encrypted and secure
-            </Typography>
-          </Box>
-        </Fade>
-      )}
+        {/* ---------- FOOTER ---------- */}
+        <Box sx={{
+          p: isMobile ? 2 : 2.5,
+          display: 'flex', flexDirection: isMobile ? 'column' : 'row',
+          justifyContent: 'center', gap: 1.5,
+          background: alpha(C.bg.card, 0.5)
+        }}>
+          <Button
+            variant="outlined"
+            onClick={fetchShops}
+            disabled={loading}
+            startIcon={<Refresh />}
+            sx={{
+              color: C.cashier.light,
+              borderColor: alpha(C.cashier.main, 0.5),
+              borderRadius: 2,
+              textTransform: 'none',
+              fontWeight: 600,
+              px: 3,
+              '&:hover': {
+                borderColor: C.cashier.light,
+                backgroundColor: alpha(C.cashier.main, 0.12)
+              }
+            }}
+          >
+            Refresh Shops
+          </Button>
+          <Button
+            variant="outlined"
+            onClick={handleLogout}
+            startIcon={<Logout />}
+            sx={{
+              color: C.text.secondary,
+              borderColor: alpha(C.text.secondary, 0.3),
+              borderRadius: 2,
+              textTransform: 'none',
+              fontWeight: 600,
+              px: 3,
+              '&:hover': {
+                color: '#fff',
+                borderColor: '#fff',
+                backgroundColor: alpha(C.text.secondary, 0.1)
+              }
+            }}
+          >
+            Logout
+          </Button>
+        </Box>
+      </Card>
     </Container>
   );
 };

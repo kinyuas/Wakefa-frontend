@@ -1,112 +1,32 @@
-// src/pages/Admin/CashierManagement.jsx - UPDATED WITH PASSWORD FIELD
-import React, { 
-  useState, 
-  useEffect, 
-  useMemo, 
-  useCallback 
+// src/pages/Admin/CashierManagement.jsx
+// Cashier management + per-cashier performance view.
+// - Converts period keyword → real startDate/endDate (backend ignores `period`)
+// - Recomputes COGS from transactions (item-level fallback → products[] lookup)
+// - Shows Overview (stats + payments) AND Transactions list
+// - Responsive across mobile / tablet / desktop
+import React, {
+  useState,
+  useEffect,
+  useMemo,
+  useCallback
 } from 'react';
-import { 
-  // Core components
-  Table, 
-  Button, 
-  Modal, 
-  message, 
-  Card, 
-  Spin, 
-  Form, 
-  Input, 
-  Space,
-  Tag,
-  Statistic,
-  Row,
-  Col,
-  Tabs,
-  Select,
-  DatePicker,
-  List,
-  Divider,
-  Tooltip,
-  Badge,
-  Progress,
-  Alert,
-  Typography,
-  Grid,
-  theme,
-  Empty,
-  Rate,
-  Drawer,
-  Dropdown,
-  Popover,
-  Avatar,
-  Segmented,
-  FloatButton,
-  Flex,
-  Layout,
-  Breadcrumb,
-  Switch,
-  InputNumber,
-  Popconfirm
+import {
+  Table, Button, Modal, message, Card, Spin, Form, Input, Space, Tag,
+  Statistic, Row, Col, Select, DatePicker, Tooltip, Badge, Progress,
+  Alert, Typography, Grid, theme, Empty, Drawer, Dropdown, Avatar,
+  FloatButton, Flex, Layout, List, Segmented
 } from 'antd';
-import { 
-  // Icons
-  UserAddOutlined, 
-  EditOutlined, 
-  DeleteOutlined, 
-  EyeOutlined,
-  BarChartOutlined,
-  TeamOutlined,
-  DollarOutlined,
-  ShoppingCartOutlined,
-  CalendarOutlined,
-  ExclamationCircleOutlined,
-  CheckCircleOutlined,
-  UserOutlined,
-  PhoneOutlined,
-  WarningOutlined,
-  MoneyCollectOutlined,
-  CalculatorOutlined,
-  RiseOutlined,
-  FallOutlined,
-  EnvironmentOutlined,
-  TrophyOutlined,
-  ArrowUpOutlined,
-  PercentageOutlined,
-  BankOutlined,
-  BarcodeOutlined,
-  DatabaseOutlined,
-  MailOutlined,
-  ReloadOutlined,
-  StarOutlined,
-  SearchOutlined,
-  FilterOutlined,
-  MoreOutlined,
-  DashboardOutlined,
-  TransactionOutlined,
-  ProfileOutlined,
-  SettingOutlined,
-  ExportOutlined,
-  DownloadOutlined,
-  InfoCircleOutlined,
-  ClockCircleOutlined,
-  AreaChartOutlined,
-  PieChartOutlined,
-  LineChartOutlined,
-  MobileOutlined,
-  TabletOutlined,
-  DesktopOutlined,
-  MenuOutlined,
-  MenuFoldOutlined,
-  MenuUnfoldOutlined,
-  CrownOutlined,
-  FireOutlined,
-  ThunderboltOutlined,
-  RocketOutlined,
-  GlobalOutlined,
-  CloudSyncOutlined,
-  CloseOutlined,
-  LockOutlined,
-  KeyOutlined,
-  SafetyCertificateOutlined
+import {
+  UserAddOutlined, EditOutlined, DeleteOutlined, EyeOutlined,
+  TeamOutlined, DollarOutlined, ShoppingCartOutlined, CalendarOutlined,
+  ExclamationCircleOutlined, UserOutlined, PhoneOutlined, WarningOutlined,
+  RiseOutlined, BankOutlined,
+  MailOutlined, ReloadOutlined, SearchOutlined, FilterOutlined,
+  MoreOutlined, MenuOutlined, CloseOutlined, LockOutlined,
+  KeyOutlined, SafetyCertificateOutlined, InfoCircleOutlined,
+  StopOutlined, CheckCircleOutlined, MoneyCollectOutlined, BarcodeOutlined,
+  BarChartOutlined, SettingOutlined, MobileOutlined, PieChartOutlined,
+  FileTextOutlined
 } from '@ant-design/icons';
 import { cashierAPI, unifiedAPI } from '../../services/api';
 import { CalculationUtils } from '../../utils/calculationUtils';
@@ -115,175 +35,143 @@ import advancedFormat from 'dayjs/plugin/advancedFormat';
 
 dayjs.extend(advancedFormat);
 
-// Destructure Ant Design components
-const { Title, Text, Paragraph } = Typography;
+const { Title, Text } = Typography;
 const { Option } = Select;
 const { RangePicker } = DatePicker;
 const { useBreakpoint } = Grid;
 const { useToken } = theme;
-const { Header, Content, Footer, Sider } = Layout;
+const { Content } = Layout;
 
 // =============================================
-// CONSTANTS AND CONFIGURATION
+// CONSTANTS
 // =============================================
-
 const TIME_RANGE_OPTIONS = [
   { label: 'Today', value: 'daily', icon: <CalendarOutlined /> },
-  { label: 'Last 7 Days', value: '7d', icon: <ClockCircleOutlined /> },
-  { label: 'Last 30 Days', value: '30d', icon: <AreaChartOutlined /> },
-  { label: 'This Year', value: 'yearly', icon: <LineChartOutlined /> },
-  { label: 'All Time', value: 'all', icon: <DatabaseOutlined /> },
+  { label: 'Last 7 Days', value: 'weekly', icon: <CalendarOutlined /> },
+  { label: 'Last 30 Days', value: 'monthly', icon: <CalendarOutlined /> },
+  { label: 'Last 12 Months', value: 'annually', icon: <CalendarOutlined /> },
+  { label: 'All Time', value: 'all', icon: <CalendarOutlined /> },
   { label: 'Custom Range', value: 'custom', icon: <FilterOutlined /> }
 ];
 
-// Password strength indicator component
+const PAYMENT_METHOD_CONFIG = {
+  cash: { color: 'green', text: 'CASH' },
+  mpesa: { color: 'blue', text: 'MPESA' },
+  bank: { color: 'purple', text: 'BANK' },
+  mpesa_bank: { color: 'blue', text: 'MPESA/BANK' },
+  cash_mpesa_bank: { color: 'cyan', text: 'CASH + M-PESA/BANK' }
+};
+
+// =============================================
+// HELPERS
+// =============================================
+const normalizeCashier = (c) => {
+  if (!c || typeof c !== 'object') return null;
+  return {
+    _id: c._id || c.id || Math.random().toString(36),
+    name: c.name || 'Unnamed Cashier',
+    email: c.email || 'no-email@example.com',
+    phone: c.phone || '',
+    status: c.status || (c.isActive === false ? 'inactive' : 'active'),
+    isActive: typeof c.isActive === 'boolean' ? c.isActive : true,
+    password: c.password || null,
+    lastLogin: c.lastLogin || null,
+    createdAt: c.createdAt || null,
+    ...c
+  };
+};
+
+const getCashierStatus = (cashier) => {
+  if (!cashier) return 'inactive';
+  if (cashier.status) return cashier.status;
+  if (typeof cashier.isActive === 'boolean') {
+    return cashier.isActive ? 'active' : 'inactive';
+  }
+  return 'active';
+};
+
+// ⭐ Same period → date conversion used in ShopManagement
+const periodToDateRange = (period, customRange = null) => {
+  if (period === 'custom' && customRange?.[0] && customRange?.[1]) {
+    return [customRange[0], customRange[1]];
+  }
+
+  const now = dayjs();
+  const end = now.endOf('day');
+
+  switch (period) {
+    case 'daily':
+      return [now.startOf('day'), end];
+    case 'weekly':
+    case '7d':
+      return [now.subtract(7, 'days').startOf('day'), end];
+    case 'monthly':
+    case '30d':
+      return [now.subtract(30, 'days').startOf('day'), end];
+    case 'annually':
+    case 'yearly':
+      return [now.subtract(365, 'days').startOf('day'), end];
+    case 'all':
+      return null;
+    default:
+      return [now.subtract(30, 'days').startOf('day'), end];
+  }
+};
+
+// =============================================
+// PASSWORD STRENGTH INDICATOR
+// =============================================
 const PasswordStrengthIndicator = ({ password }) => {
   const { token } = useToken();
-  
-  const calculateStrength = (pass) => {
-    if (!pass) return 0;
-    
-    let strength = 0;
-    
-    // Length check
-    if (pass.length >= 8) strength += 25;
-    else if (pass.length >= 6) strength += 15;
-    else if (pass.length >= 4) strength += 5;
-    
-    // Contains number
-    if (/\d/.test(pass)) strength += 25;
-    
-    // Contains lowercase
-    if (/[a-z]/.test(pass)) strength += 15;
-    
-    // Contains uppercase
-    if (/[A-Z]/.test(pass)) strength += 15;
-    
-    // Contains special character
-    if (/[!@#$%^&*(),.?":{}|<>]/.test(pass)) strength += 20;
-    
-    return Math.min(100, strength);
-  };
-  
-  const strength = calculateStrength(password);
-  
-  const getStrengthColor = () => {
-    if (strength < 30) return token.colorError;
-    if (strength < 60) return token.colorWarning;
-    if (strength < 80) return token.colorInfo;
-    return token.colorSuccess;
-  };
-  
-  const getStrengthText = () => {
-    if (!password) return 'No password';
-    if (strength < 30) return 'Weak';
-    if (strength < 60) return 'Fair';
-    if (strength < 80) return 'Good';
-    return 'Strong';
-  };
-  
   if (!password) return null;
-  
+
+  const calculateStrength = (pass) => {
+    let s = 0;
+    if (pass.length >= 8) s += 25;
+    else if (pass.length >= 6) s += 15;
+    if (/\d/.test(pass)) s += 25;
+    if (/[a-z]/.test(pass)) s += 15;
+    if (/[A-Z]/.test(pass)) s += 15;
+    if (/[!@#$%^&*(),.?":{}|<>]/.test(pass)) s += 20;
+    return Math.min(100, s);
+  };
+
+  const strength = calculateStrength(password);
+  const getColor = () =>
+    strength < 30 ? token.colorError :
+    strength < 60 ? token.colorWarning :
+    strength < 80 ? token.colorInfo : token.colorSuccess;
+  const getText = () =>
+    strength < 30 ? 'Weak' :
+    strength < 60 ? 'Fair' :
+    strength < 80 ? 'Good' : 'Strong';
+
   return (
     <div style={{ marginTop: 8 }}>
       <Flex justify="space-between" align="center">
         <Text type="secondary" style={{ fontSize: 12 }}>Password Strength:</Text>
-        <Text style={{ color: getStrengthColor(), fontSize: 12, fontWeight: 500 }}>
-          {getStrengthText()} ({strength}%)
+        <Text style={{ color: getColor(), fontSize: 12, fontWeight: 500 }}>
+          {getText()} ({strength}%)
         </Text>
       </Flex>
-      <Progress 
-        percent={strength} 
-        strokeColor={getStrengthColor()} 
+      <Progress
+        percent={strength}
+        strokeColor={getColor()}
         showInfo={false}
         size="small"
         style={{ marginTop: 4 }}
       />
-      <ul style={{ 
-        marginTop: 8, 
-        paddingLeft: 20, 
-        fontSize: 11, 
-        color: token.colorTextSecondary 
-      }}>
-        <li style={{ color: password?.length >= 8 ? token.colorSuccess : token.colorTextSecondary }}>
-          At least 8 characters
-        </li>
-        <li style={{ color: /\d/.test(password) ? token.colorSuccess : token.colorTextSecondary }}>
-          Contains at least one number
-        </li>
-        <li style={{ color: /[a-z]/.test(password) && /[A-Z]/.test(password) ? token.colorSuccess : token.colorTextSecondary }}>
-          Contains both uppercase and lowercase letters
-        </li>
-        <li style={{ color: /[!@#$%^&*(),.?":{}|<>]/.test(password) ? token.colorSuccess : token.colorTextSecondary }}>
-          Contains at least one special character
-        </li>
-      </ul>
     </div>
   );
 };
 
 // =============================================
-// AI-Enhanced Responsive Components
+// RESPONSIVE STAT CARD
 // =============================================
-
-const DeviceAwareCard = ({ children, title, extra, style, loading, ...props }) => {
+const ResponsiveStatCard = ({ title, value, prefix, suffix, icon, color, children }) => {
   const screens = useBreakpoint();
   const { token } = useToken();
-  
-  return (
-    <Card
-      title={
-        <div style={{ 
-          display: 'flex', 
-          alignItems: 'center',
-          gap: '12px',
-          flexWrap: screens.xs ? 'wrap' : 'nowrap'
-        }}>
-          {typeof title === 'string' ? (
-            <>
-              <TeamOutlined style={{ 
-                color: token.colorPrimary, 
-                fontSize: screens.xs ? '18px' : '22px'
-              }} />
-              <Text strong style={{ 
-                fontSize: screens.xs ? '16px' : '18px',
-                flex: 1,
-                minWidth: 0
-              }}>
-                {title}
-              </Text>
-            </>
-          ) : title}
-        </div>
-      }
-      extra={extra}
-      style={{
-        borderRadius: screens.xs ? '8px' : '12px',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-        border: 'none',
-        marginBottom: screens.xs ? '16px' : '24px',
-        ...style
-      }}
-      headStyle={{ 
-        padding: screens.xs ? '12px 16px' : '16px 24px',
-        borderBottom: `1px solid ${token.colorBorder}`,
-        background: screens.xs ? 'white' : 'transparent'
-      }}
-      bodyStyle={{ 
-        padding: screens.xs ? '16px' : '24px'
-      }}
-      loading={loading}
-      {...props}
-    >
-      {children}
-    </Card>
-  );
-};
 
-const ResponsiveStatCard = ({ title, value, prefix, suffix, icon, color, trend, children, loading }) => {
-  const screens = useBreakpoint();
-  const { token } = useToken();
-  
   const getIconSize = () => {
     if (screens.xxl) return 40;
     if (screens.xl) return 36;
@@ -292,327 +180,162 @@ const ResponsiveStatCard = ({ title, value, prefix, suffix, icon, color, trend, 
     if (screens.sm) return 26;
     return 24;
   };
-  
-  const formattedValue = typeof value === 'number' ? 
-    value.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : 
-    value;
-  
+
   return (
     <Card
       style={{
         height: '100%',
         background: `linear-gradient(135deg, ${color}15, ${color}08)`,
-        borderRadius: '12px',
-        border: `1px solid ${color}20`,
-        transition: 'all 0.3s ease',
+        borderRadius: 12,
+        border: `1px solid ${color}20`
       }}
       hoverable
-      bodyStyle={{ 
-        padding: screens.xs ? '16px' : '20px',
+      bodyStyle={{
+        padding: screens.xs ? '14px' : '18px',
         display: 'flex',
         flexDirection: 'column',
         height: '100%'
       }}
     >
-      <Spin spinning={loading}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: '8px',
-              marginBottom: '8px'
-            }}>
-              <div style={{
-                background: `${color}15`,
-                borderRadius: '8px',
-                padding: '6px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}>
-                {React.cloneElement(icon, { 
-                  style: { 
-                    color, 
-                    fontSize: getIconSize(),
-                    transition: 'all 0.3s ease'
-                  }
-                })}
-              </div>
-              <Text strong style={{ 
-                color: token.colorTextSecondary,
-                fontSize: screens.xs ? '12px' : '14px',
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis'
-              }}>
-                {title}
-              </Text>
-            </div>
-            
-            <div style={{ 
-              display: 'flex', 
-              alignItems: 'baseline',
-              gap: '4px',
-              flexWrap: 'wrap'
-            }}>
-              {prefix && (
-                <Text style={{ 
-                  color: token.colorTextTertiary,
-                  fontSize: screens.xs ? '12px' : '14px'
-                }}>
-                  {prefix}
-                </Text>
-              )}
-              <Text strong style={{ 
-                color,
-                fontSize: screens.xs ? '20px' : '24px',
-                fontWeight: 700,
-                lineHeight: 1.2
-              }}>
-                {formattedValue}
-              </Text>
-              {suffix && (
-                <Text style={{ 
-                  color: token.colorTextTertiary,
-                  fontSize: screens.xs ? '12px' : '14px'
-                }}>
-                  {suffix}
-                </Text>
-              )}
-            </div>
-            
-            {trend && (
-              <div style={{ 
-                display: 'flex', 
-                alignItems: 'center',
-                gap: '4px',
-                marginTop: '4px'
-              }}>
-                {trend.direction === 'up' ? (
-                  <RiseOutlined style={{ color: token.colorSuccess, fontSize: '12px' }} />
-                ) : (
-                  <FallOutlined style={{ color: token.colorError, fontSize: '12px' }} />
-                )}
-                <Text style={{ 
-                  color: trend.direction === 'up' ? token.colorSuccess : token.colorError,
-                  fontSize: '12px',
-                  fontWeight: 500
-                }}>
-                  {trend.value}%
-                </Text>
-              </div>
-            )}
-          </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <div style={{
+          background: `${color}15`,
+          borderRadius: 8,
+          padding: 6,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}>
+          {icon ? React.cloneElement(icon, { style: { color, fontSize: getIconSize() } }) : null}
         </div>
-        
-        {children && (
-          <div style={{ 
-            marginTop: '12px',
-            paddingTop: '12px',
-            borderTop: `1px solid ${token.colorBorder}` 
-          }}>
-            {children}
-          </div>
-        )}
-      </Spin>
+        <Text strong style={{
+          color: token.colorTextSecondary,
+          fontSize: screens.xs ? '12px' : '13px',
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis'
+        }}>
+          {title}
+        </Text>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, flexWrap: 'wrap' }}>
+        {prefix && <Text style={{
+          color: token.colorTextTertiary,
+          fontSize: screens.xs ? '11px' : '13px'
+        }}>{prefix}</Text>}
+        <Text strong style={{
+          color,
+          fontSize: screens.xs ? '20px' : '26px',
+          fontWeight: 700,
+          lineHeight: 1.2
+        }}>
+          {typeof value === 'number' ? value.toLocaleString() : (value ?? '0')}
+        </Text>
+        {suffix && <Text style={{
+          color: token.colorTextTertiary,
+          fontSize: screens.xs ? '11px' : '13px'
+        }}>{suffix}</Text>}
+      </div>
+
+      {children && (
+        <div style={{
+          marginTop: 10,
+          paddingTop: 10,
+          borderTop: `1px solid ${token.colorBorder}`
+        }}>
+          {children}
+        </div>
+      )}
     </Card>
   );
 };
 
-const AdaptiveTable = ({ columns, data, loading, ...props }) => {
-  const screens = useBreakpoint();
-  const { token } = useToken();
-  
-  const adaptiveColumns = useMemo(() => {
-    if (!screens.md) {
-      return columns.map(col => ({
-        ...col,
-        ellipsis: true,
-        width: col.dataIndex === 'action' ? 80 : undefined,
-        render: col.dataIndex === 'action' ? (_, record) => (
-          <Dropdown
-            menu={{
-              items: [
-                {
-                  key: 'view',
-                  label: 'View Performance',
-                  icon: <EyeOutlined />,
-                  onClick: () => col.onView?.(record)
-                },
-                {
-                  key: 'edit',
-                  label: 'Edit Cashier',
-                  icon: <EditOutlined />,
-                  onClick: () => col.onEdit?.(record)
-                },
-                {
-                  type: 'divider',
-                },
-                {
-                  key: 'delete',
-                  label: 'Delete',
-                  icon: <DeleteOutlined />,
-                  danger: true,
-                  onClick: () => col.onDelete?.(record._id)
-                }
-              ]
-            }}
-            trigger={['click']}
-            placement="bottomRight"
-          >
-            <Button type="text" icon={<MoreOutlined />} size="small" />
-          </Dropdown>
-        ) : col.render
-      }));
-    }
-    
-    return columns;
-  }, [columns, screens.md]);
-  
-  return (
-    <div style={{ 
-      borderRadius: '8px',
-      overflow: 'hidden',
-      border: `1px solid ${token.colorBorder}`,
-      background: 'white'
-    }}>
-      <Table
-        columns={adaptiveColumns}
-        dataSource={data}
-        loading={loading}
-        pagination={{
-          pageSize: screens.xs ? 5 : 10,
-          size: screens.xs ? 'small' : 'default',
-          showSizeChanger: !screens.xs,
-          showQuickJumper: !screens.xs,
-          simple: screens.xs,
-          showTotal: (total) => `Total ${total} cashiers`
-        }}
-        scroll={{ x: true }}
-        size={screens.xs ? 'small' : 'middle'}
-        rowKey="_id"
-        rowClassName={() => 'responsive-table-row'}
-        style={{
-          minHeight: '200px'
-        }}
-        {...props}
-      />
-    </div>
-  );
-};
-
+// =============================================
+// TRANSACTION ITEM (used in cashier summary)
+// =============================================
 const TransactionItem = ({ transaction, screens, colors }) => {
   const { token } = useToken();
   const [expanded, setExpanded] = useState(false);
-  
-  const isMobile = screens.xs;
-  
+  const tx = transaction || {};
+  const items = Array.isArray(tx.items) ? tx.items : [];
+  const dateValue = tx.saleDate || tx.transactionDate || tx.createdAt;
+  const paymentConfig = PAYMENT_METHOD_CONFIG[tx.paymentMethod] || PAYMENT_METHOD_CONFIG.cash;
+
   return (
-    <div 
-      style={{ 
-        marginBottom: '12px', 
-        padding: isMobile ? '12px' : '16px',
-        borderRadius: '10px',
+    <div
+      style={{
+        marginBottom: 12,
+        padding: screens?.xs ? '12px' : '16px',
+        borderRadius: 10,
         backgroundColor: token.colorBgContainer,
         border: `1px solid ${token.colorBorderSecondary}`,
-        cursor: 'pointer',
-        transition: 'all 0.3s ease',
-        '&:hover': {
-          borderColor: token.colorPrimary,
-          boxShadow: `0 2px 8px ${token.colorPrimary}15`
-        }
+        cursor: 'pointer'
       }}
       onClick={() => setExpanded(!expanded)}
     >
-      <Flex vertical={isMobile} gap={isMobile ? 'small' : 'middle'} justify="space-between">
+      <Flex vertical={screens?.xs} gap={screens?.xs ? 'small' : 'middle'} justify="space-between">
         <Flex vertical gap="small" style={{ flex: 1, minWidth: 0 }}>
           <Flex align="center" gap="small" wrap="wrap">
-            <BarcodeOutlined style={{ color: colors.primary, fontSize: '14px' }} />
-            <Text strong style={{ 
-              fontSize: isMobile ? '13px' : '14px',
-              color: token.colorTextHeading,
-              flex: 1,
-              minWidth: 0
-            }}>
-              {transaction.items?.length || 0} items sold
+            <FileTextOutlined style={{ color: colors?.primary, fontSize: 14 }} />
+            <Text strong style={{ fontSize: screens?.xs ? '13px' : '14px', flex: 1, minWidth: 0 }}>
+              {tx.transactionNumber || `TXN-${(tx._id || '').substring(0, 6)}`}
             </Text>
-            {transaction.paymentMethod === 'cash_mpesa_bank' && (
-              <Tag 
-                color="orange" 
-                style={{ 
-                  borderRadius: '12px',
-                  padding: '2px 8px',
-                  fontWeight: '500',
-                  fontSize: '10px',
-                  margin: 0
-                }}
-              >
-                Mixed Payment
-              </Tag>
-            )}
+            <Tag
+              color={paymentConfig.color}
+              style={{ fontSize: 10, margin: 0 }}
+            >
+              {paymentConfig.text}
+            </Tag>
           </Flex>
-          
           <Flex align="center" gap="small" wrap="wrap">
-            <CalendarOutlined style={{ fontSize: '11px', color: token.colorTextTertiary }} />
-            <Text style={{ 
-              fontSize: '11px', 
-              color: token.colorTextTertiary,
-            }}>
-              {dayjs(transaction.saleDate || transaction.transactionDate || transaction.createdAt).format('MMM D, YYYY h:mm A')}
+            <CalendarOutlined style={{ fontSize: 11, color: token.colorTextTertiary }} />
+            <Text style={{ fontSize: 11, color: token.colorTextTertiary }}>
+              {dateValue ? dayjs(dateValue).format('MMM D, YYYY h:mm A') : 'No date'}
             </Text>
           </Flex>
-          
-          {expanded && transaction.items && (
-            <div style={{ 
-              marginTop: '8px',
-              padding: '8px',
+          <Text style={{ fontSize: 11, color: token.colorTextTertiary }}>
+            {items.length} item{items.length === 1 ? '' : 's'} sold
+          </Text>
+          {expanded && items.length > 0 && (
+            <div style={{
+              marginTop: 8,
+              padding: 8,
               background: token.colorBgLayout,
-              borderRadius: '6px',
-              fontSize: '12px'
+              borderRadius: 6
             }}>
-              {transaction.items.map((item, index) => (
-                <div key={index} style={{ 
-                  display: 'flex', 
-                  justifyContent: 'space-between',
-                  padding: '4px 0',
-                  borderBottom: index < transaction.items.length - 1 ? `1px dashed ${token.colorBorder}` : 'none'
-                }}>
-                  <Text style={{ fontSize: '11px' }}>
-                    {item.productName || item.name} × {item.quantity}
+              {items.map((item, index) => (
+                <div
+                  key={index}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    padding: '4px 0',
+                    borderBottom: index < items.length - 1
+                      ? `1px dashed ${token.colorBorder}`
+                      : 'none'
+                  }}
+                >
+                  <Text style={{ fontSize: 11 }}>
+                    {(item?.productName || item?.name || 'Item')} × {item?.quantity || 1}
                   </Text>
-                  <Text style={{ fontSize: '11px', fontWeight: 500 }}>
-                    KES {((item.price || 0) * (item.quantity || 1)).toLocaleString()}
+                  <Text style={{ fontSize: 11, fontWeight: 500 }}>
+                    KES {((item?.price || 0) * (item?.quantity || 1)).toLocaleString()}
                   </Text>
                 </div>
               ))}
             </div>
           )}
         </Flex>
-        
-        <Flex vertical align={isMobile ? "flex-start" : "flex-end"} gap="small">
-          <Text strong style={{ 
-            fontSize: isMobile ? '16px' : '18px', 
-            color: colors.success,
-            textAlign: isMobile ? 'left' : 'right'
+        <Flex vertical align={screens?.xs ? 'flex-start' : 'flex-end'} gap="small">
+          <Text strong style={{
+            fontSize: screens?.xs ? '18px' : '20px',
+            color: colors?.success
           }}>
-            KES {transaction.totalAmount?.toLocaleString('en-KE', { minimumFractionDigits: 2 }) || '0.00'}
+            KES {(tx.totalAmount || 0).toLocaleString('en-KE', { minimumFractionDigits: 2 })}
           </Text>
-          <Tag 
-            color={
-              transaction.paymentMethod === 'cash' ? 'green' :
-              transaction.paymentMethod === 'mpesa_bank' ? 'blue' :
-              transaction.paymentMethod === 'cash_mpesa_bank' ? 'orange' : 'default'
-            }
-            style={{ 
-              fontSize: '10px',
-              margin: 0
-            }}
-          >
-            {transaction.paymentMethod?.toUpperCase().replace(/_/g, ' ') || 'CASH'} Sale
-          </Tag>
-          <Text type="secondary" style={{ fontSize: '10px', color: transaction.profit >= 0 ? colors.success : colors.error }}>
-            Profit: KES {transaction.profit?.toFixed(2) || '0.00'}
+          <Text style={{ fontSize: 10, color: token.colorTextTertiary }}>
+            {tx.shopName || (tx.shop && typeof tx.shop === 'object' ? tx.shop.name : '')}
           </Text>
         </Flex>
       </Flex>
@@ -621,44 +344,35 @@ const TransactionItem = ({ transaction, screens, colors }) => {
 };
 
 // =============================================
-// MAIN COMPONENT - CASHIER MANAGEMENT
+// MAIN COMPONENT
 // =============================================
-
 const CashierManagement = () => {
   const [cashiers, setCashiers] = useState([]);
-  const [filteredCashiers, setFilteredCashiers] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [editingCashier, setEditingCashier] = useState(null);
   const [viewingCashier, setViewingCashier] = useState(null);
-  const [cashierPerformance, setCashierPerformance] = useState({});
-  const [transactions, setTransactions] = useState([]);
+  const [cashierSummary, setCashierSummary] = useState({});
+  const [cashierTransactions, setCashierTransactions] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [summaryLoading, setSummaryLoading] = useState(false);
   const [transactionsLoading, setTransactionsLoading] = useState(false);
-  const [timeFilter, setTimeFilter] = useState('30d');
+  const [timeFilter, setTimeFilter] = useState('monthly');
   const [customDateRange, setCustomDateRange] = useState(null);
   const [searchText, setSearchText] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [activeTab, setActiveTab] = useState('overview');
   const [drawerVisible, setDrawerVisible] = useState(false);
-  const [mobileView, setMobileView] = useState('list');
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [viewMode, setViewMode] = useState('grid');
-  const [exportLoading, setExportLoading] = useState(false);
-  const [dataTimestamp, setDataTimestamp] = useState(null);
-  const [shops, setShops] = useState([]);
-  
-  // Password visibility state
   const [showPassword, setShowPassword] = useState(false);
   const [passwordValue, setPasswordValue] = useState('');
-  
+  const [togglingStatusId, setTogglingStatusId] = useState(null);
+  const [summaryTab, setSummaryTab] = useState('overview'); // 'overview' | 'transactions'
+
   const [form] = Form.useForm();
-  
   const screens = useBreakpoint();
   const { token } = useToken();
-  const isMobile = screens.xs;
-  const isTablet = screens.sm && !screens.lg;
-  const isDesktop = screens.lg;
+  const isMobile = screens?.xs;
+  const isTablet = screens?.sm && !screens?.lg;
+  const isDesktop = screens?.lg;
 
   const colors = {
     primary: token.colorPrimary,
@@ -668,281 +382,203 @@ const CashierManagement = () => {
     purple: '#722ed1',
     cyan: '#13c2c2',
     gold: '#fa8c16',
-    lime: '#a0d911',
-    magenta: '#eb2f96',
-    volcano: '#fa541c',
   };
 
-  // Device-aware layout configuration
   const layoutConfig = useMemo(() => ({
     isMobile,
     isTablet,
     isDesktop,
-    deviceType: isMobile ? 'mobile' : isTablet ? 'tablet' : 'desktop',
-    orientation: screens.height > screens.width ? 'portrait' : 'landscape',
-    
-    // Responsive column spans
-    cols: {
-      stats: isMobile ? 24 : isTablet ? 12 : 6,
-      payment: isMobile ? 24 : isTablet ? 24 : 12,
-      details: isMobile ? 24 : isTablet ? 12 : 12,
-    },
-    
-    // Padding and spacing
     padding: isMobile ? '16px' : isTablet ? '20px' : '24px',
-    gap: isMobile ? '12px' : isTablet ? '16px' : '20px',
-    
-    // Font sizes
-    fontSize: {
-      title: isMobile ? '16px' : isTablet ? '18px' : '20px',
-      subtitle: isMobile ? '12px' : isTablet ? '13px' : '14px',
-      stat: isMobile ? '20px' : isTablet ? '24px' : '28px',
-      body: isMobile ? '12px' : isTablet ? '13px' : '14px',
-    }
-  }), [isMobile, isTablet, isDesktop, screens]);
+    gap: isMobile ? 12 : isTablet ? 16 : 20
+  }), [isMobile, isTablet, isDesktop]);
 
   // =============================================
-  // DATE RANGE CALCULATION
+  // FETCH CASHIERS
   // =============================================
-
-  const calculateDateRange = useCallback((rangeType) => {
-    const now = dayjs();
-    let startDate;
-
-    switch (rangeType) {
-      case 'daily':
-        startDate = now.startOf('day');
-        break;
-      case '7d':
-        startDate = now.subtract(7, 'days');
-        break;
-      case '30d':
-        startDate = now.subtract(30, 'days');
-        break;
-      case 'yearly':
-        startDate = now.startOf('year');
-        break;
-      case 'all':
-        return null;
-      case 'custom':
-        return customDateRange;
-      default:
-        startDate = now.subtract(30, 'days');
-    }
-
-    return [startDate, now];
-  }, [customDateRange]);
-
-  // =============================================
-  // DATA FETCHING FUNCTIONS
-  // =============================================
-
-  const fetchCashiers = async () => {
+  const fetchCashiers = useCallback(async () => {
     setLoading(true);
     try {
-      console.log('📋 Fetching cashiers list...');
-      const cashiersData = await cashierAPI.getAll();
-      console.log('✅ Cashiers fetched:', cashiersData.length, 'cashiers');
+      const response = await cashierAPI.getAll();
+      const raw = Array.isArray(response)
+        ? response
+        : (response?.data || response?.cashiers || []);
+      const cashiersData = raw.map(normalizeCashier).filter(Boolean);
       setCashiers(cashiersData);
-      setFilteredCashiers(cashiersData);
-      
-      // Fetch shops as well for context
-      const shopsData = await cashierAPI.getShops?.() || [];
-      setShops(shopsData);
-      
     } catch (error) {
       console.error('❌ Error fetching cashiers:', error);
       message.error('Failed to fetch cashiers');
+      setCashiers([]);
     } finally {
       setLoading(false);
     }
-  };
-
-  const fetchCashierPerformance = async (cashierId, rangeType = timeFilter, dateRange = null) => {
-    try {
-      console.log('📊 Fetching cashier performance for ID:', cashierId, 'with range:', rangeType);
-      
-      const params = { 
-        cashierId,
-        dataType: 'withItems'
-      };
-      
-      // Calculate date range based on filter type
-      if (rangeType !== 'custom') {
-        const calculatedRange = calculateDateRange(rangeType);
-        if (calculatedRange && calculatedRange[0] && calculatedRange[1]) {
-          params.startDate = calculatedRange[0].format('YYYY-MM-DD');
-          params.endDate = calculatedRange[1].format('YYYY-MM-DD');
-        }
-      } else if (dateRange && dateRange[0] && dateRange[1]) {
-        params.startDate = dateRange[0].format('YYYY-MM-DD');
-        params.endDate = dateRange[1].format('YYYY-MM-DD');
-      }
-      
-      console.log('📅 Performance date params:', params);
-      
-      const response = await unifiedAPI.getCombinedTransactions(params);
-      console.log('✅ Performance response received');
-      
-      // Extract summary data
-      const summary = response.summary || 
-                     response.data?.summary || 
-                     response.financialStats || 
-                     {};
-      
-      const performanceData = {
-        totalRevenue: summary.totalRevenue || 0,
-        totalSales: summary.totalSales || summary.transactions || 0,
-        totalProfit: summary.netProfit || summary.totalProfit || 0,
-        profitMargin: summary.profitMargin || 0,
-        totalCash: summary.totalCash || 0,
-        totalMpesaBank: summary.totalMpesaBank || 0,
-        totalItemsSold: summary.totalItemsSold || 0
-      };
-      
-      console.log('✅ Processed performance data:', performanceData);
-      setCashierPerformance(performanceData);
-      setDataTimestamp(new Date().toISOString());
-      
-    } catch (error) {
-      console.error('❌ Error fetching cashier performance:', error);
-      message.error('Failed to fetch cashier performance data');
-    }
-  };
-
-  const fetchCashierTransactions = async (cashierId, rangeType = timeFilter, dateRange = null) => {
-    setTransactionsLoading(true);
-    try {
-      console.log('💳 Fetching cashier transactions for ID:', cashierId, 'with range:', rangeType);
-      
-      const params = { 
-        cashierId,
-        dataType: 'withItems'
-      };
-      
-      // Calculate date range based on filter type
-      if (rangeType !== 'custom') {
-        const calculatedRange = calculateDateRange(rangeType);
-        if (calculatedRange && calculatedRange[0] && calculatedRange[1]) {
-          params.startDate = calculatedRange[0].format('YYYY-MM-DD');
-          params.endDate = calculatedRange[1].format('YYYY-MM-DD');
-        }
-      } else if (dateRange && dateRange[0] && dateRange[1]) {
-        params.startDate = dateRange[0].format('YYYY-MM-DD');
-        params.endDate = dateRange[1].format('YYYY-MM-DD');
-      }
-      
-      console.log('📅 Transaction date params:', params);
-      
-      const response = await unifiedAPI.getCombinedTransactions(params);
-      console.log('✅ Transactions response received');
-      
-      const transactionsData = response.transactions || 
-                              response.salesWithProfit || 
-                              response.data?.transactions || 
-                              response.data?.salesWithProfit || 
-                              [];
-      
-      console.log('📊 Raw transactions count:', transactionsData.length);
-      
-      const processedTransactions = CalculationUtils.processComprehensiveData({
-        transactions: transactionsData
-      }, cashierId).salesWithProfit;
-      
-      console.log('✅ Processed transactions:', processedTransactions.length);
-      setTransactions(processedTransactions);
-      
-    } catch (error) {
-      console.error('❌ Error fetching cashier transactions:', error);
-      message.error('Failed to fetch transactions');
-      setTransactions([]);
-    } finally {
-      setTransactionsLoading(false);
-    }
-  };
-
-  // =============================================
-  // EFFECTS - AUTO-FETCH DATA WHEN FILTERS CHANGE
-  // =============================================
-
-  useEffect(() => { 
-    console.log('🚀 Initializing Cashier Management');
-    fetchCashiers(); 
   }, []);
 
-  // Auto-fetch performance data when viewing cashier and filters change
-  useEffect(() => {
-    if (viewingCashier && timeFilter !== 'custom') {
-      console.log('🔄 Auto-refreshing data for time filter change:', timeFilter);
-      fetchCashierPerformance(viewingCashier._id, timeFilter);
-      fetchCashierTransactions(viewingCashier._id, timeFilter);
-    }
-  }, [timeFilter, viewingCashier]);
+  // =============================================
+  // FETCH CASHIER SUMMARY — Revenue, COGS, Profit, Payments
+  // =============================================
+  const fetchCashierSummary = useCallback(async (
+    cashierId,
+    rangeType = 'monthly',
+    dateRange = null
+  ) => {
+    if (!cashierId) return;
+    try {
+      const params = { cashierId, dataType: 'withItems' };
 
-  // Auto-fetch when custom date range changes
-  useEffect(() => {
-    if (viewingCashier && timeFilter === 'custom' && customDateRange) {
-      console.log('🔄 Auto-refreshing data for custom date range');
-      fetchCashierPerformance(viewingCashier._id, 'custom', customDateRange);
-      fetchCashierTransactions(viewingCashier._id, 'custom', customDateRange);
+      const range = periodToDateRange(rangeType, dateRange);
+      if (range && range[0] && range[1]) {
+        params.startDate = range[0].format('YYYY-MM-DD');
+        params.endDate = range[1].format('YYYY-MM-DD');
+      }
+
+      const response = await unifiedAPI.getCombinedTransactions(params);
+
+      const summary =
+        response?.summary ||
+        response?.data?.summary ||
+        response?.financialStats ||
+        response?.data?.financialStats ||
+        {};
+
+      const rawTransactions =
+        response?.transactions ||
+        response?.salesWithProfit ||
+        response?.data?.transactions ||
+        response?.data?.salesWithProfit ||
+        [];
+
+      const allProducts =
+        response?.products ||
+        response?.data?.products ||
+        response?.data?.comprehensiveData?.products ||
+        [];
+
+      const txSumRevenue = rawTransactions.reduce(
+        (s, t) => s + CalculationUtils.safeNumber(t.totalAmount), 0
+      );
+      const totalRevenue =
+        CalculationUtils.safeNumber(summary.totalRevenue) || txSumRevenue;
+
+      // ★ COGS with item fallback
+      const totalCOGS = rawTransactions.reduce((s, t) => {
+        const stored = CalculationUtils.safeNumber(t.cost);
+        if (stored > 0) return s + stored;
+        const fromItems = CalculationUtils.calculateCostFromItems
+          ? CalculationUtils.calculateCostFromItems(t, allProducts)
+          : 0;
+        return s + fromItems;
+      }, 0);
+
+      const grossProfit = Math.max(0, totalRevenue - totalCOGS);
+      const netProfit = grossProfit;
+      const profitMargin = totalRevenue > 0
+        ? parseFloat(((netProfit / totalRevenue) * 100).toFixed(2))
+        : 0;
+
+      const paymentComp = CalculationUtils.calculatePaymentComposition
+        ? CalculationUtils.calculatePaymentComposition(rawTransactions)
+        : { cash: 0, mpesa_bank: 0 };
+
+      const totalCash = CalculationUtils.safeNumber(summary.totalCash) || paymentComp.cash || 0;
+      const totalBankMpesa = CalculationUtils.safeNumber(
+        summary.totalMpesaBank ?? summary.totalBank
+      ) || paymentComp.mpesa_bank || 0;
+
+      const totalPayments = totalCash + totalBankMpesa;
+
+      const totalTransactions =
+        CalculationUtils.safeNumber(summary.totalSales ?? summary.totalTransactions) ||
+        rawTransactions.length || 0;
+
+      const totalItemsSold =
+        CalculationUtils.safeNumber(summary.totalItemsSold) ||
+        rawTransactions.reduce(
+          (s, t) => s + CalculationUtils.safeNumber(t.itemsCount || (t.items?.length || 0)),
+          0
+        );
+
+      setCashierSummary({
+        totalRevenue: parseFloat((totalRevenue || 0).toFixed(2)),
+        totalCOGS: parseFloat((totalCOGS || 0).toFixed(2)),
+        grossProfit: parseFloat((grossProfit || 0).toFixed(2)),
+        netProfit: parseFloat((netProfit || 0).toFixed(2)),
+        profitMargin,
+        totalTransactions,
+        totalItemsSold,
+        totalCash: parseFloat((totalCash || 0).toFixed(2)),
+        totalBankMpesa: parseFloat((totalBankMpesa || 0).toFixed(2)),
+        cashPercentage: totalPayments > 0
+          ? parseFloat(((totalCash / totalPayments) * 100).toFixed(1))
+          : 0,
+        mpesaBankPercentage: totalPayments > 0
+          ? parseFloat(((totalBankMpesa / totalPayments) * 100).toFixed(1))
+          : 0,
+        dataSource: 'local'
+      });
+
+      // ⭐ Also store transactions for the Transactions tab
+      setCashierTransactions(
+        Array.isArray(rawTransactions)
+          ? rawTransactions.sort(
+              (a, b) =>
+                new Date(b.saleDate || b.createdAt) -
+                new Date(a.saleDate || a.createdAt)
+            )
+          : []
+      );
+    } catch (error) {
+      console.error('❌ Error fetching cashier summary:', error);
+      setCashierSummary({});
+      setCashierTransactions([]);
     }
-  }, [customDateRange, viewingCashier]);
+  }, []);
 
   // =============================================
-  // FILTER HANDLERS
+  // HANDLERS
   // =============================================
-
-  const handleTimeFilterChange = (value) => {
-    console.log('🕒 Time filter changed to:', value);
+  const handleTimeFilterChange = useCallback((value) => {
     setTimeFilter(value);
     if (value !== 'custom') {
       setCustomDateRange(null);
-    }
-  };
-
-  const handleCustomDateChange = (dates) => {
-    console.log('📅 Custom date range selected:', dates);
-    setCustomDateRange(dates);
-  };
-
-  // Search and filter cashiers
-  const handleSearch = useCallback((value) => {
-    setSearchText(value);
-    if (!value.trim()) {
-      setFilteredCashiers(cashiers);
-      return;
-    }
-    
-    const searchValue = value.toLowerCase();
-    const filtered = cashiers.filter(cashier => 
-      cashier.name?.toLowerCase().includes(searchValue) ||
-      cashier.email?.toLowerCase().includes(searchValue) ||
-      (cashier.phone && cashier.phone.includes(searchValue))
-    );
-    setFilteredCashiers(filtered);
-  }, [cashiers]);
-
-  // Manual refresh function
-  const handleManualRefresh = async () => {
-    if (viewingCashier) {
-      setTransactionsLoading(true);
-      try {
-        await Promise.all([
-          fetchCashierPerformance(viewingCashier._id, timeFilter, customDateRange),
-          fetchCashierTransactions(viewingCashier._id, timeFilter, customDateRange)
-        ]);
-        message.success('Data refreshed successfully');
-      } catch (error) {
-        message.error('Failed to refresh data');
-      } finally {
-        setTransactionsLoading(false);
+      if (viewingCashier) {
+        setSummaryLoading(true);
+        setTransactionsLoading(true);
+        fetchCashierSummary(viewingCashier._id, value, null)
+          .finally(() => {
+            setSummaryLoading(false);
+            setTransactionsLoading(false);
+          });
       }
     }
-  };
+  }, [viewingCashier, fetchCashierSummary]);
 
-  // =============================================
-  // CRUD OPERATIONS WITH PASSWORD
-  // =============================================
+  const handleCustomDateChange = useCallback((dates) => {
+    setCustomDateRange(dates);
+    if (dates?.[0] && dates?.[1] && viewingCashier) {
+      setSummaryLoading(true);
+      setTransactionsLoading(true);
+      fetchCashierSummary(viewingCashier._id, 'custom', dates)
+        .finally(() => {
+          setSummaryLoading(false);
+          setTransactionsLoading(false);
+        });
+    }
+  }, [viewingCashier, fetchCashierSummary]);
+
+  const handleManualRefresh = useCallback(async () => {
+    if (!viewingCashier) return;
+    setSummaryLoading(true);
+    setTransactionsLoading(true);
+    try {
+      await fetchCashierSummary(viewingCashier._id, timeFilter, customDateRange);
+      message.success('Data refreshed');
+    } catch {
+      message.error('Failed to refresh');
+    } finally {
+      setSummaryLoading(false);
+      setTransactionsLoading(false);
+    }
+  }, [viewingCashier, timeFilter, customDateRange, fetchCashierSummary]);
 
   const handleAddCashier = () => {
     form.resetFields();
@@ -952,67 +588,56 @@ const CashierManagement = () => {
   };
 
   const handleEditCashier = (cashier) => {
-    console.log('✏️ Editing cashier:', cashier._id);
+    if (!cashier) return;
     setEditingCashier(cashier);
     setPasswordValue('');
     form.setFieldsValue({
-      name: cashier.name,
-      email: cashier.email,
-      phone: cashier.phone,
-      // Don't set password field for editing - leave blank
+      name: cashier?.name || '',
+      email: cashier?.email || '',
+      phone: cashier?.phone || '',
     });
     setIsModalOpen(true);
   };
 
-  const handleViewCashier = async (cashier) => {
-    console.log('👁️ Viewing cashier performance:', cashier._id);
+  // INSTANT open — data loads in the background
+  const handleViewCashier = useCallback(async (cashier) => {
+    if (!cashier) return;
     setViewingCashier(cashier);
+    setCashierSummary({});
+    setCashierTransactions([]);
+    setSummaryTab('overview');
+
+    if (isMobile) setDrawerVisible(true);
+    else setIsViewModalOpen(true);
+
+    setSummaryLoading(true);
     setTransactionsLoading(true);
-    
     try {
-      setCashierPerformance({});
-      setTransactions([]);
-      
-      await Promise.all([
-        fetchCashierPerformance(cashier._id, timeFilter, customDateRange),
-        fetchCashierTransactions(cashier._id, timeFilter, customDateRange)
-      ]);
-      
-      if (isMobile) {
-        setDrawerVisible(true);
-      } else {
-        setIsViewModalOpen(true);
-      }
-      
-      console.log('✅ Performance view opened for cashier:', cashier.name);
-    } catch (error) {
-      console.error('❌ Error loading cashier performance:', error);
-      message.error('Failed to load cashier performance data');
+      await fetchCashierSummary(cashier._id, timeFilter, customDateRange);
+    } catch (e) {
+      console.warn('Summary fetch failed:', e);
     } finally {
+      setSummaryLoading(false);
       setTransactionsLoading(false);
     }
-  };
+  }, [isMobile, timeFilter, customDateRange, fetchCashierSummary]);
 
-  const handleDeleteCashier = async (id) => {
+  const handleDeleteCashier = (id) => {
+    if (!id) return;
     Modal.confirm({
       title: 'Delete Cashier',
-      content: 'Are you sure you want to delete this cashier? This action cannot be undone.',
+      content: 'Are you sure? This cannot be undone.',
       icon: <ExclamationCircleOutlined />,
       okText: 'Yes, Delete',
       okType: 'danger',
       cancelText: 'Cancel',
-      className: isMobile ? 'mobile-confirm-modal' : '',
-      width: isMobile ? '80%' : 520,
       onOk: async () => {
         try {
           setLoading(true);
-          console.log('🗑️ Deleting cashier ID:', id);
           await cashierAPI.delete(id);
-          setCashiers(cashiers.filter(cashier => cashier._id !== id));
-          setFilteredCashiers(filteredCashiers.filter(cashier => cashier._id !== id));
-          message.success('Cashier deleted successfully');
-        } catch (error) {
-          console.error('❌ Error deleting cashier:', error);
+          setCashiers(prev => prev.filter(c => c._id !== id));
+          message.success('Cashier deleted');
+        } catch {
           message.error('Failed to delete cashier');
         } finally {
           setLoading(false);
@@ -1021,49 +646,88 @@ const CashierManagement = () => {
     });
   };
 
+  const handleToggleCashierStatus = (cashier) => {
+    if (!cashier || !cashier._id) return;
+    const currentStatus = getCashierStatus(cashier);
+    const isCurrentlyActive = currentStatus === 'active';
+    const newStatus = isCurrentlyActive ? 'inactive' : 'active';
+    const actionLabel = isCurrentlyActive ? 'Deactivate' : 'Activate';
+
+    Modal.confirm({
+      title: `${actionLabel} Cashier`,
+      icon: isCurrentlyActive
+        ? <StopOutlined style={{ color: colors.warning }} />
+        : <CheckCircleOutlined style={{ color: colors.success }} />,
+      content: isCurrentlyActive
+        ? `Deactivate "${cashier.name}"? They will not be able to log in.`
+        : `Activate "${cashier.name}"? They will be able to log in again.`,
+      okText: `Yes, ${actionLabel}`,
+      okType: isCurrentlyActive ? 'danger' : 'primary',
+      cancelText: 'Cancel',
+      onOk: async () => {
+        try {
+          setTogglingStatusId(cashier._id);
+          await cashierAPI.update(cashier._id, {
+            name: cashier.name,
+            email: cashier.email,
+            phone: cashier.phone || '',
+            status: newStatus
+          });
+          setCashiers(prev =>
+            prev.map(c =>
+              c._id === cashier._id
+                ? { ...c, status: newStatus, isActive: newStatus === 'active' }
+                : c
+            )
+          );
+          if (viewingCashier && viewingCashier._id === cashier._id) {
+            setViewingCashier(prev => ({
+              ...prev,
+              status: newStatus,
+              isActive: newStatus === 'active'
+            }));
+          }
+          message.success(`Cashier ${isCurrentlyActive ? 'deactivated' : 'activated'}`);
+        } catch {
+          message.error(`Failed to ${actionLabel.toLowerCase()} cashier`);
+        } finally {
+          setTogglingStatusId(null);
+        }
+      }
+    });
+  };
+
   const handleSubmit = async (values) => {
     try {
       setLoading(true);
-      if (!values.name?.trim() || !values.email?.trim()) {
-        throw new Error('Cashier name and email are required');
+      if (!values?.name?.trim() || !values?.email?.trim()) {
+        throw new Error('Name and email are required');
       }
-
-      const cashierData = { 
-        name: values.name.trim(), 
+      const cashierData = {
+        name: values.name.trim(),
         email: values.email.trim(),
-        phone: values.phone?.trim() || ''
+        phone: values.phone?.trim() || '',
+        status: 'active',
+        isActive: true
       };
-      
-      // Only include password if it's provided
-      if (values.password && values.password.trim() !== '') {
+      if (values.password?.trim()) {
         cashierData.password = values.password.trim();
       }
-      
-      console.log('💾 Saving cashier:', { ...cashierData, password: cashierData.password ? '[PROVIDED]' : '[NOT PROVIDED]' });
-      
-      let response;
-
       if (editingCashier) {
-        response = await cashierAPI.update(editingCashier._id, cashierData);
-        setCashiers(cashiers.map(c => c._id === editingCashier._id ? response.data : c));
-        setFilteredCashiers(filteredCashiers.map(c => c._id === editingCashier._id ? response.data : c));
-        message.success(cashierData.password ? 'Cashier updated with new password' : 'Cashier updated successfully');
+        await cashierAPI.update(editingCashier._id, cashierData);
+        message.success('Cashier updated');
       } else {
-        // For new cashiers, password is required
-        if (!values.password || values.password.trim() === '') {
+        if (!values.password?.trim()) {
           throw new Error('Password is required for new cashiers');
         }
-        response = await cashierAPI.create(cashierData);
-        setCashiers([...cashiers, response.data]);
-        setFilteredCashiers([...filteredCashiers, response.data]);
-        message.success('Cashier added successfully with password');
+        await cashierAPI.create(cashierData);
+        message.success('Cashier added');
       }
-
       setIsModalOpen(false);
       form.resetFields();
       setPasswordValue('');
+      fetchCashiers();
     } catch (error) {
-      console.error('❌ Error saving cashier:', error);
       message.error(error.message || 'Failed to save cashier');
     } finally {
       setLoading(false);
@@ -1071,1464 +735,884 @@ const CashierManagement = () => {
   };
 
   // =============================================
-  // PERFORMANCE METRICS CALCULATION
+  // FILTERED CASHIERS
   // =============================================
+  const filteredCashiers = useMemo(() => {
+    let result = Array.isArray(cashiers) ? [...cashiers] : [];
+    if (searchText?.trim()) {
+      const search = searchText.toLowerCase();
+      result = result.filter(c =>
+        (c?.name || '').toLowerCase().includes(search) ||
+        (c?.email || '').toLowerCase().includes(search) ||
+        (c?.phone && c.phone.includes(search))
+      );
+    }
+    if (statusFilter !== 'all') {
+      result = result.filter(c => getCashierStatus(c) === statusFilter);
+    }
+    return result;
+  }, [cashiers, searchText, statusFilter]);
 
-  const calculatePerformanceMetrics = () => {
-    console.log('🧮 Calculating performance metrics from', transactions.length, 'transactions');
-    
-    if (transactions.length === 0 && Object.keys(cashierPerformance).length === 0) {
-      console.log('⚠️ No data to calculate metrics');
-      return {
-        totalTransactions: 0,
-        totalRevenue: 0,
-        totalCost: 0,
-        totalProfit: 0,
-        profitMargin: 0,
-        performanceScore: 0,
-        totalItemsSold: 0,
-        totalCash: 0,
-        totalBankMpesa: 0,
-        cashPercentage: 0,
-        mpesaBankPercentage: 0,
-        cashTransactions: 0,
-        mpesaBankTransactions: 0,
-        dataSource: 'none'
-      };
+  // =============================================
+  // EFFECTS
+  // =============================================
+  useEffect(() => { fetchCashiers(); }, [fetchCashiers]);
+
+  // Re-fetch summary when period changes while viewing
+  useEffect(() => {
+    if (viewingCashier && (isViewModalOpen || drawerVisible)) {
+      setSummaryLoading(true);
+      setTransactionsLoading(true);
+      fetchCashierSummary(viewingCashier._id, timeFilter, customDateRange)
+        .finally(() => {
+          setSummaryLoading(false);
+          setTransactionsLoading(false);
+        });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timeFilter, customDateRange]);
+
+  // =============================================
+  // COLUMNS
+  // =============================================
+  const columns = useMemo(() => {
+    const baseColumns = [
+      {
+        title: 'Cashier',
+        dataIndex: 'name',
+        key: 'name',
+        fixed: isMobile ? false : 'left',
+        width: isMobile ? 140 : 220,
+        sorter: (a, b) => (a?.name || '').localeCompare(b?.name || ''),
+        render: (text, record) => {
+          if (!record) return null;
+          return (
+            <Flex align="center" gap="small">
+              <Avatar
+                size={isMobile ? 32 : 40}
+                style={{
+                  background: `linear-gradient(135deg, ${colors.primary}, ${colors.purple})`,
+                  flexShrink: 0
+                }}
+                icon={<UserOutlined />}
+              />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <Text strong style={{ fontSize: isMobile ? '13px' : '14px', display: 'block' }}>
+                  {text || 'Unnamed'}
+                </Text>
+                <Text
+                  type="secondary"
+                  style={{
+                    fontSize: isMobile ? '11px' : '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4
+                  }}
+                >
+                  <MailOutlined style={{ fontSize: '10px' }} />
+                  {record.email || 'No email'}
+                </Text>
+                {record.phone && (
+                  <Text
+                    type="secondary"
+                    style={{
+                      fontSize: '10px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4
+                    }}
+                  >
+                    <PhoneOutlined style={{ fontSize: '10px' }} />
+                    {record.phone}
+                  </Text>
+                )}
+              </div>
+            </Flex>
+          );
+        }
+      },
+    ];
+
+    if (!isMobile) {
+      baseColumns.push(
+        {
+          title: 'Status',
+          key: 'status',
+          width: 110,
+          align: 'center',
+          render: (_, record) => {
+            if (!record) return null;
+            const status = getCashierStatus(record);
+            return (
+              <Badge
+                status={status === 'active' ? 'success' : 'warning'}
+                text={status === 'active' ? 'Active' : 'Inactive'}
+              />
+            );
+          }
+        },
+        {
+          title: 'Password',
+          key: 'passwordStatus',
+          width: 110,
+          align: 'center',
+          render: (_, record) => {
+            if (!record) return null;
+            return (
+              <Tag
+                color={record.password ? 'green' : 'orange'}
+                icon={record.password ? <SafetyCertificateOutlined /> : <WarningOutlined />}
+                style={{ fontSize: '11px' }}
+              >
+                {record.password ? 'Set' : 'Not Set'}
+              </Tag>
+            );
+          }
+        },
+        {
+          title: 'Last Login',
+          dataIndex: 'lastLogin',
+          key: 'lastLogin',
+          width: 180,
+          render: (date) => (
+            date ? (
+              <Flex vertical gap={0}>
+                <Text style={{ fontSize: '12px', fontWeight: 500 }}>
+                  {dayjs(date).format('MMM D, YYYY')}
+                </Text>
+                <Text type="secondary" style={{ fontSize: '11px' }}>
+                  {dayjs(date).format('h:mm:ss A')}
+                </Text>
+              </Flex>
+            ) : (
+              <Text type="secondary" style={{ fontSize: '12px' }}>Never</Text>
+            )
+          )
+        }
+      );
     }
 
-    // Use server stats if available, otherwise calculate from transactions
-    const totalRevenue = cashierPerformance.totalRevenue || 
-                       CalculationUtils.calculateRevenue(transactions);
-    
-    const totalCost = CalculationUtils.calculateCOGS(transactions);
-    const totalProfit = cashierPerformance.totalProfit || (totalRevenue - totalCost);
-    const profitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
-
-    // Payment composition
-    let totalCash = cashierPerformance.totalCash || 0;
-    let totalBankMpesa = cashierPerformance.totalMpesaBank || 0;
-    
-    if (totalCash === 0 && totalBankMpesa === 0 && transactions.length > 0) {
-      const paymentComposition = CalculationUtils.calculatePaymentComposition(transactions);
-      totalCash = paymentComposition.cash;
-      totalBankMpesa = paymentComposition.mpesa_bank;
-    }
-    
-    const totalPayments = totalCash + totalBankMpesa;
-    const cashPercentage = totalPayments > 0 ? (totalCash / totalPayments) * 100 : 0;
-    const mpesaBankPercentage = totalPayments > 0 ? (totalBankMpesa / totalPayments) * 100 : 0;
-
-    // Transaction counts
-    const cashTransactions = transactions.filter(t => 
-      t.paymentMethod === 'cash' || 
-      (t.paymentSplit && t.paymentSplit.cash > 0)
-    ).length;
-    
-    const mpesaBankTransactions = transactions.filter(t => 
-      ['mpesa', 'bank', 'mpesa_bank', 'cash_mpesa_bank'].includes(t.paymentMethod) ||
-      (t.paymentSplit && t.paymentSplit.mpesa_bank > 0)
-    ).length;
-
-    // Performance score calculation
-    let performanceScore = 0;
-    performanceScore += Math.min(40, (totalRevenue / 10000) * 40);
-    performanceScore += Math.min(30, (transactions.length / 50) * 30);
-    performanceScore += Math.min(15, profitMargin * 0.3);
-    performanceScore += Math.min(15, (totalBankMpesa / (totalRevenue || 1)) * 15);
-    performanceScore = Math.min(100, Math.round(performanceScore));
-
-    const metrics = {
-      totalTransactions: cashierPerformance.totalSales || transactions.length,
-      totalRevenue: parseFloat(totalRevenue.toFixed(2)),
-      totalCost: parseFloat(totalCost.toFixed(2)),
-      totalProfit: parseFloat(totalProfit.toFixed(2)),
-      profitMargin: parseFloat(profitMargin.toFixed(2)),
-      performanceScore: performanceScore,
-      totalItemsSold: cashierPerformance.totalItemsSold || 
-                     transactions.reduce((sum, t) => 
-                       sum + CalculationUtils.safeNumber(t.itemsCount || (t.items ? t.items.length : 0)), 0),
-      
-      totalCash: parseFloat(totalCash.toFixed(2)),
-      totalBankMpesa: parseFloat(totalBankMpesa.toFixed(2)),
-      cashPercentage: parseFloat(cashPercentage.toFixed(1)),
-      mpesaBankPercentage: parseFloat(mpesaBankPercentage.toFixed(1)),
-      cashTransactions: cashTransactions,
-      mpesaBankTransactions: mpesaBankTransactions,
-      
-      dataSource: cashierPerformance.totalRevenue ? 'server' : 'local'
-    };
-    
-    console.log('✅ Calculated metrics:', metrics);
-    return metrics;
-  };
-
-  // =============================================
-  // RESPONSIVE TABLE COLUMNS
-  // =============================================
-
-  const columns = useMemo(() => [
-    { 
-      title: 'Cashier', 
-      dataIndex: 'name', 
-      key: 'name',
-      fixed: isMobile ? false : 'left',
-      width: isMobile ? 120 : 180,
-      sorter: (a, b) => a.name.localeCompare(b.name),
-      render: (text, record) => (
-        <Flex align="center" gap="small">
-          <Avatar 
-            size={isMobile ? 32 : 40}
-            style={{ 
-              background: `linear-gradient(135deg, ${colors.primary}, ${colors.purple})`,
-              flexShrink: 0
-            }}
-            icon={<UserOutlined />}
-          />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <Text strong style={{ 
-              fontSize: isMobile ? '13px' : '14px',
-              color: token.colorTextHeading,
-              display: 'block',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap'
-            }}>
-              {text}
-            </Text>
-            <Text type="secondary" style={{ 
-              fontSize: isMobile ? '11px' : '12px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px'
-            }}>
-              <MailOutlined style={{ fontSize: '10px' }} />
-              {record.email}
-            </Text>
-            {record.phone && (
-              <Text type="secondary" style={{ 
-                fontSize: isMobile ? '10px' : '11px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px'
-              }}>
-                <PhoneOutlined style={{ fontSize: '10px' }} />
-                {record.phone}
-              </Text>
-            )}
-            {/* Show password status indicator */}
-            <Tag 
-              color={record.password ? 'green' : 'orange'} 
-              size="small"
-              style={{ 
-                fontSize: '9px', 
-                marginTop: '4px',
-                padding: '0 4px'
-              }}
-              icon={record.password ? <SafetyCertificateOutlined /> : <WarningOutlined />}
-            >
-              {record.password ? 'Password Set' : 'No Password'}
-            </Tag>
-          </div>
-        </Flex>
-      )
-    },
-    ...(isMobile ? [] : [
-      { 
-        title: 'Contact', 
-        dataIndex: 'email', 
-        key: 'email', 
-        width: 180,
-        render: (text) => (
-          <Text type="secondary" style={{ fontSize: '12px' }}>
-            {text}
-          </Text>
-        )
-      },
-      { 
-        title: 'Status', 
-        key: 'status', 
-        width: 100,
-        align: 'center',
-        render: (_, record) => (
-          <Badge 
-            status={record.status === 'active' ? 'success' : 'warning'}
-            text={record.status === 'active' ? 'Active' : 'Inactive'}
-            style={{ fontSize: '12px' }}
-          />
-        ) 
-      },
-      { 
-        title: 'Password', 
-        key: 'passwordStatus',
-        width: 100,
-        align: 'center',
-        render: (_, record) => (
-          <Tag 
-            color={record.password ? 'green' : 'orange'}
-            icon={record.password ? <SafetyCertificateOutlined /> : <WarningOutlined />}
-            style={{ fontSize: '11px' }}
-          >
-            {record.password ? 'Set' : 'Not Set'}
-          </Tag>
-        )
-      },
-      { 
-        title: 'Last Login', 
-        dataIndex: 'lastLogin', 
-        key: 'lastLogin',
-        width: 120,
-        render: (date) => (
-          <Text type="secondary" style={{ fontSize: '12px' }}>
-            {date ? dayjs(date).format('MMM D') : 'Never'}
-          </Text>
-        )
-      },
-    ]),
-    { 
-      title: 'Action', 
+    baseColumns.push({
+      title: 'Action',
       key: 'action',
-      width: isMobile ? 80 : 150,
+      width: isMobile ? 80 : 210,
       fixed: isMobile ? 'right' : false,
       align: 'center',
-      onView: (record) => handleViewCashier(record),
-      onEdit: (record) => handleEditCashier(record),
-      onDelete: (id) => handleDeleteCashier(id),
       render: (_, record) => {
+        if (!record || !record._id) return null;
+        const status = getCashierStatus(record);
+        const isActive = status === 'active';
+        const isToggling = togglingStatusId === record._id;
+
         if (isMobile) {
           return (
             <Dropdown
               menu={{
                 items: [
+                  { key: 'view', label: 'View Summary', icon: <EyeOutlined />, onClick: () => handleViewCashier(record) },
+                  { key: 'edit', label: 'Edit', icon: <EditOutlined />, onClick: () => handleEditCashier(record) },
                   {
-                    key: 'view',
-                    label: 'View Performance',
-                    icon: <EyeOutlined />,
-                    onClick: () => handleViewCashier(record)
+                    key: 'toggle',
+                    label: isActive ? 'Deactivate' : 'Activate',
+                    icon: isActive ? <StopOutlined /> : <CheckCircleOutlined />,
+                    onClick: () => handleToggleCashierStatus(record)
                   },
-                  {
-                    key: 'edit',
-                    label: 'Edit Cashier',
-                    icon: <EditOutlined />,
-                    onClick: () => handleEditCashier(record)
-                  },
-                  {
-                    type: 'divider',
-                  },
-                  {
-                    key: 'delete',
-                    label: 'Delete',
-                    icon: <DeleteOutlined />,
-                    danger: true,
-                    onClick: () => handleDeleteCashier(record._id)
-                  }
+                  { type: 'divider' },
+                  { key: 'delete', label: 'Delete', icon: <DeleteOutlined />, danger: true, onClick: () => handleDeleteCashier(record._id) }
                 ]
               }}
               trigger={['click']}
               placement="bottomRight"
             >
-              <Button 
-                type="text" 
-                icon={<MoreOutlined />} 
-                size="small"
-                style={{ padding: '4px' }}
-              />
+              <Button type="text" icon={<MoreOutlined />} size="small" loading={isToggling} />
             </Dropdown>
           );
         }
-        
         return (
-          <Space size="small" wrap>
-            <Tooltip title="View Performance">
-              <Button 
-                icon={<EyeOutlined />} 
-                onClick={() => handleViewCashier(record)} 
-                type="primary" 
+          <Space size="small">
+            <Tooltip title="View Summary">
+              <Button icon={<EyeOutlined />} onClick={() => handleViewCashier(record)} type="primary" size="small" />
+            </Tooltip>
+            <Tooltip title="Edit">
+              <Button icon={<EditOutlined />} onClick={() => handleEditCashier(record)} size="small" />
+            </Tooltip>
+            <Tooltip title={isActive ? 'Deactivate' : 'Activate'}>
+              <Button
+                icon={isActive ? <StopOutlined /> : <CheckCircleOutlined />}
+                onClick={() => handleToggleCashierStatus(record)}
                 size="small"
-                style={{ 
-                  background: `linear-gradient(45deg, ${colors.primary}, ${colors.success})`,
-                  border: 'none',
-                  borderRadius: '6px',
-                  padding: '4px 12px',
-                  height: '28px'
+                loading={isToggling}
+                style={{
+                  color: isActive ? colors.warning : colors.success,
+                  borderColor: isActive ? colors.warning : colors.success
                 }}
               />
             </Tooltip>
-            <Tooltip title="Edit Cashier">
-              <Button 
-                icon={<EditOutlined />} 
-                onClick={() => handleEditCashier(record)} 
-                size="small"
-                style={{ 
-                  background: `${colors.primary}10`,
-                  borderColor: colors.primary,
-                  color: colors.primary,
-                  borderRadius: '6px',
-                  padding: '4px 12px',
-                  height: '28px'
-                }}
-              />
-            </Tooltip>
-            <Tooltip title="Delete Cashier">
-              <Button 
-                danger 
-                icon={<DeleteOutlined />} 
-                onClick={() => handleDeleteCashier(record._id)} 
-                size="small"
-                style={{ 
-                  borderRadius: '6px',
-                  padding: '4px 12px',
-                  height: '28px'
-                }}
-              />
+            <Tooltip title="Delete">
+              <Button danger icon={<DeleteOutlined />} onClick={() => handleDeleteCashier(record._id)} size="small" />
             </Tooltip>
           </Space>
         );
       }
-    },
-  ], [isMobile, colors, token, handleViewCashier, handleEditCashier, handleDeleteCashier]);
+    });
+
+    return baseColumns;
+  }, [isMobile, colors, token, togglingStatusId]);
 
   // =============================================
-  // PERFORMANCE VIEW COMPONENT
+  // CASHIER SUMMARY VIEW — Overview + Transactions
   // =============================================
-
-  const CashierPerformanceView = ({ cashier }) => {
-    const metrics = calculatePerformanceMetrics();
-    const [activePerformanceTab, setActivePerformanceTab] = useState('overview');
+  const CashierSummaryView = () => {
+    const status = getCashierStatus(viewingCashier);
+    const isActive = status === 'active';
+    const s = cashierSummary || {};
 
     return (
       <div>
-        {/* Time Filter Card */}
-        <DeviceAwareCard
-          title="Performance Filter"
-          style={{ marginBottom: layoutConfig.gap }}
-          extra={
-            dataTimestamp && (
-              <Text type="secondary" style={{ fontSize: '11px' }}>
-                Updated: {dayjs(dataTimestamp).format('HH:mm:ss')}
-              </Text>
-            )
+        {/* Status banner */}
+        {viewingCashier && (
+          <Alert
+            type={isActive ? 'success' : 'warning'}
+            showIcon
+            icon={isActive ? <CheckCircleOutlined /> : <StopOutlined />}
+            message={
+              <Flex justify="space-between" align="center" wrap="wrap" gap="small">
+                <Text>
+                  Status:{' '}
+                  <Tag color={isActive ? 'green' : 'orange'} style={{ marginLeft: 4 }}>
+                    {isActive ? 'ACTIVE' : 'INACTIVE'}
+                  </Tag>
+                </Text>
+                <Button
+                  size="small"
+                  type={isActive ? 'default' : 'primary'}
+                  danger={isActive}
+                  icon={isActive ? <StopOutlined /> : <CheckCircleOutlined />}
+                  onClick={() => handleToggleCashierStatus(viewingCashier)}
+                  loading={togglingStatusId === viewingCashier._id}
+                >
+                  {isActive ? 'Deactivate' : 'Activate'}
+                </Button>
+              </Flex>
+            }
+            style={{ marginBottom: 16 }}
+          />
+        )}
+
+        {/* Period Filter */}
+        <Card
+          size="small"
+          title={
+            <Flex align="center" gap="small">
+              <CalendarOutlined style={{ color: colors.primary }} />
+              <Text strong>Performance Filter</Text>
+            </Flex>
           }
+          style={{ marginBottom: 16, borderRadius: 12 }}
         >
           <Row gutter={[layoutConfig.gap, layoutConfig.gap]} align="middle">
             <Col xs={24} sm={12} md={6}>
-              <Text strong style={{ fontSize: layoutConfig.fontSize.body }}>
-                Filter by:
-              </Text>
+              <Text strong style={{ fontSize: isMobile ? '12px' : '13px' }}>Filter by:</Text>
             </Col>
-            <Col xs={24} sm={12} md={6}>
-              <Select 
-                value={timeFilter} 
-                onChange={handleTimeFilterChange} 
+            <Col xs={24} sm={12} md={8}>
+              <Select
+                value={timeFilter}
+                onChange={handleTimeFilterChange}
                 style={{ width: '100%' }}
                 size={isMobile ? 'small' : 'middle'}
                 suffixIcon={<CalendarOutlined />}
-                popupMatchSelectWidth={false}
               >
                 {TIME_RANGE_OPTIONS.map(option => (
                   <Option key={option.value} value={option.value}>
-                    <Space>
-                      {option.icon}
-                      {option.label}
-                    </Space>
+                    <Space>{option.icon}{option.label}</Space>
                   </Option>
                 ))}
               </Select>
             </Col>
             {timeFilter === 'custom' && (
-              <Col xs={24} sm={24} md={12}>
-                <RangePicker 
-                  value={customDateRange} 
-                  onChange={handleCustomDateChange} 
-                  format="YYYY-MM-DD" 
+              <Col xs={24} sm={24} md={10}>
+                <RangePicker
+                  value={customDateRange}
+                  onChange={handleCustomDateChange}
+                  format="YYYY-MM-DD"
                   style={{ width: '100%' }}
                   size={isMobile ? 'small' : 'middle'}
-                  allowClear={false}
                 />
               </Col>
             )}
           </Row>
-        </DeviceAwareCard>
+        </Card>
 
-        {/* Performance Stats Grid */}
-        <Row gutter={[layoutConfig.gap, layoutConfig.gap]} style={{ marginBottom: layoutConfig.gap }}>
-          <Col xs={24} sm={12} md={8} lg={6}>
-            <ResponsiveStatCard
-              title="Total Transactions"
-              value={metrics.totalTransactions}
-              icon={<ShoppingCartOutlined />}
-              color={colors.purple}
-              suffix="sales"
-              loading={transactionsLoading}
-            >
-              <Text type="secondary" style={{ fontSize: '12px' }}>
-                Items sold: <strong style={{ color: colors.purple }}>{metrics.totalItemsSold}</strong>
-              </Text>
-            </ResponsiveStatCard>
-          </Col>
+        {/* ⭐ Segmented: Overview / Transactions */}
+        <Segmented
+          block={isMobile}
+          value={summaryTab}
+          onChange={setSummaryTab}
+          options={[
+            {
+              label: (
+                <span>
+                  <PieChartOutlined /> {!isMobile && 'Overview'}
+                </span>
+              ),
+              value: 'overview'
+            },
+            {
+              label: (
+                <span>
+                  <ShoppingCartOutlined /> {!isMobile && 'Transactions'}{' '}
+                  <Badge
+                    count={cashierTransactions.length}
+                    size="small"
+                    overflowCount={999}
+                  />
+                </span>
+              ),
+              value: 'transactions'
+            }
+          ]}
+          style={{
+            marginBottom: 16,
+            background: token.colorBgContainer,
+            padding: 4,
+            borderRadius: 8
+          }}
+        />
 
-          <Col xs={24} sm={12} md={8} lg={6}>
-            <ResponsiveStatCard
-              title="Total Revenue"
-              value={metrics.totalRevenue}
-              prefix="KES"
-              icon={<DollarOutlined />}
-              color={colors.primary}
-              loading={transactionsLoading}
-            >
-              <Text type="secondary" style={{ fontSize: '12px' }}>
-                Source: <Tag color={metrics.dataSource === 'server' ? 'success' : 'warning'} size="small">
-                  {metrics.dataSource}
-                </Tag>
-              </Text>
-            </ResponsiveStatCard>
-          </Col>
-
-          <Col xs={24} sm={12} md={8} lg={6}>
-            <ResponsiveStatCard
-              title="Total Profit"
-              value={metrics.totalProfit}
-              prefix="KES"
-              icon={<RiseOutlined />}
-              color={colors.success}
-              loading={transactionsLoading}
-            >
-              <Text type="secondary" style={{ fontSize: '12px' }}>
-                Margin: <strong style={{ color: colors.success }}>
-                  {metrics.profitMargin.toFixed(1)}%
-                </strong>
-              </Text>
-            </ResponsiveStatCard>
-          </Col>
-
-          <Col xs={24} sm={12} md={8} lg={6}>
-            <ResponsiveStatCard
-              title="Performance Score"
-              value={metrics.performanceScore}
-              suffix="/100"
-              icon={<TrophyOutlined />}
-              color={colors.warning}
-              loading={transactionsLoading}
-            >
-              <Rate 
-                disabled 
-                value={Math.ceil(metrics.performanceScore / 20)} 
-                character={<StarOutlined />}
-                style={{ fontSize: '14px' }}
-              />
-            </ResponsiveStatCard>
-          </Col>
-        </Row>
-
-        {/* Tabs Navigation */}
-        <div style={{ marginBottom: layoutConfig.gap }}>
-          <Segmented
-            value={activePerformanceTab}
-            onChange={setActivePerformanceTab}
-            options={[
-              { 
-                label: (
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <BarChartOutlined /> 
-                    {!isMobile && 'Overview'}
-                  </span>
-                ), 
-                value: 'overview' 
-              },
-              { 
-                label: (
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <PieChartOutlined /> 
-                    {!isMobile && 'Payments'}
-                  </span>
-                ), 
-                value: 'payments' 
-              },
-              { 
-                label: (
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <TransactionOutlined /> 
-                    {!isMobile && 'Transactions'}
-                    <Badge count={transactions.length} size="small" style={{ marginLeft: '4px' }} />
-                  </span>
-                ), 
-                value: 'transactions' 
-              },
-            ]}
-            block={isMobile}
-            size={isMobile ? 'small' : 'middle'}
-            style={{ 
-              background: token.colorBgContainer,
-              padding: '4px',
-              borderRadius: '8px'
-            }}
-          />
-        </div>
-
-        {/* Tab Content */}
-        {activePerformanceTab === 'overview' && (
-          <Row gutter={[layoutConfig.gap, layoutConfig.gap]}>
-            <Col xs={24} md={12}>
-              <DeviceAwareCard title="Revenue & Cost Analysis">
-                <Space direction="vertical" style={{ width: '100%' }}>
-                  <div style={{ 
-                    display: 'flex', 
-                    justifyContent: 'space-between', 
-                    alignItems: 'center',
-                    padding: '16px',
-                    background: `${colors.primary}08`,
-                    borderRadius: '8px',
-                    marginBottom: '8px',
-                    borderLeft: `4px solid ${colors.primary}`
-                  }}>
-                    <Flex vertical gap="small">
-                      <Text style={{ fontWeight: '500', color: token.colorTextSecondary }}>Total Revenue</Text>
-                      <Text style={{ fontSize: '12px', color: token.colorTextTertiary }}>
-                        From {metrics.totalTransactions} transactions
-                      </Text>
-                    </Flex>
-                    <Text strong style={{ 
-                      color: colors.primary, 
-                      fontSize: '20px', 
-                      fontWeight: 'bold'
-                    }}>
-                      {CalculationUtils.formatCurrency(metrics.totalRevenue)}
-                    </Text>
-                  </div>
-                  
-                  <div style={{ 
-                    display: 'flex', 
-                    justifyContent: 'space-between', 
-                    alignItems: 'center',
-                    padding: '16px',
-                    background: `${colors.warning}08`,
-                    borderRadius: '8px',
-                    borderLeft: `4px solid ${colors.warning}`
-                  }}>
-                    <Flex vertical gap="small">
-                      <Text style={{ fontWeight: '500', color: token.colorTextSecondary }}>Total Cost</Text>
-                      <Text style={{ fontSize: '12px', color: token.colorTextTertiary }}>
-                        For {metrics.totalItemsSold} items
-                      </Text>
-                    </Flex>
-                    <Text strong style={{ 
-                      color: colors.warning, 
-                      fontSize: '18px',
-                      fontWeight: 'bold'
-                    }}>
-                      {CalculationUtils.formatCurrency(metrics.totalCost)}
-                    </Text>
-                  </div>
-                </Space>
-              </DeviceAwareCard>
-            </Col>
-            
-            <Col xs={24} md={12}>
-              <DeviceAwareCard title="Profit Analysis">
-                <Space direction="vertical" style={{ width: '100%' }}>
-                  <div style={{ 
-                    display: 'flex', 
-                    justifyContent: 'space-between', 
-                    alignItems: 'center',
-                    padding: '16px',
-                    background: `${colors.success}08`,
-                    borderRadius: '8px',
-                    marginBottom: '8px',
-                    borderLeft: `4px solid ${colors.success}`
-                  }}>
-                    <Flex vertical gap="small">
-                      <Text style={{ fontWeight: '500', color: token.colorTextSecondary }}>Total Profit</Text>
-                      <Text style={{ fontSize: '12px', color: token.colorTextTertiary }}>
-                        Revenue - Cost
-                      </Text>
-                    </Flex>
-                    <Text strong style={{ 
-                      color: colors.success, 
-                      fontSize: '18px',
-                      fontWeight: 'bold'
-                    }}>
-                      {CalculationUtils.formatCurrency(metrics.totalProfit)}
-                    </Text>
-                  </div>
-                  
-                  <div style={{ 
-                    display: 'flex', 
-                    justifyContent: 'space-between', 
-                    alignItems: 'center',
-                    padding: '16px',
-                    background: `${CalculationUtils.getProfitColor(metrics.profitMargin)}08`,
-                    borderRadius: '8px',
-                    borderLeft: `4px solid ${CalculationUtils.getProfitColor(metrics.profitMargin)}`
-                  }}>
-                    <Flex vertical gap="small">
-                      <Text style={{ fontWeight: '500', color: token.colorTextSecondary }}>Profit Margin</Text>
-                      <Text style={{ fontSize: '12px', color: token.colorTextTertiary }}>
-                        Percentage of revenue
-                      </Text>
-                    </Flex>
-                    <Text strong style={{ 
-                      color: CalculationUtils.getProfitColor(metrics.profitMargin), 
-                      fontSize: '20px', 
-                      fontWeight: 'bold'
-                    }}>
-                      {metrics.profitMargin.toFixed(1)}%
-                    </Text>
-                  </div>
-                </Space>
-              </DeviceAwareCard>
-            </Col>
-          </Row>
-        )}
-
-        {activePerformanceTab === 'payments' && (
-          <DeviceAwareCard title="Payment Composition">
+        {/* ═══════════════ OVERVIEW TAB ═══════════════ */}
+        {summaryTab === 'overview' && (
+          <Spin spinning={summaryLoading}>
             <Row gutter={[layoutConfig.gap, layoutConfig.gap]}>
-              <Col xs={24} md={12}>
-                <Card
-                  style={{ 
-                    height: '100%',
-                    background: `linear-gradient(135deg, ${colors.purple}15, ${colors.purple}08)`,
-                    borderRadius: '12px',
-                    border: `1px solid ${colors.purple}20`,
-                  }}
-                  bodyStyle={{ padding: '20px' }}
+              <Col xs={24} sm={12} md={8} lg={6}>
+                <ResponsiveStatCard
+                  title="Total Revenue"
+                  value={s.totalRevenue || 0}
+                  prefix="KES"
+                  icon={<DollarOutlined />}
+                  color={colors.primary}
                 >
-                  <Flex vertical gap="middle">
-                    <Flex justify="space-between" align="center">
-                      <Flex align="center" gap="small">
-                        <div style={{
-                          background: `${colors.purple}20`,
-                          borderRadius: '8px',
-                          padding: '8px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center'
-                        }}>
-                          <MoneyCollectOutlined style={{ color: colors.purple, fontSize: '20px' }} />
-                        </div>
-                        <div>
-                          <Text strong style={{ fontSize: '16px', color: token.colorTextHeading }}>
-                            Cash Payments
-                          </Text>
-                          <Text type="secondary" style={{ fontSize: '12px' }}>
-                            {metrics.cashTransactions} transactions
-                          </Text>
-                        </div>
-                      </Flex>
-                      <Tag color="purple" style={{ fontSize: '12px', fontWeight: '500' }}>
-                        {metrics.cashPercentage.toFixed(1)}%
-                      </Tag>
-                    </Flex>
-                    
-                    <Text strong style={{ 
-                      fontSize: isMobile ? '24px' : '28px', 
-                      color: colors.purple,
-                      textAlign: 'center'
-                    }}>
-                      {CalculationUtils.formatCurrency(metrics.totalCash)}
-                    </Text>
-                    
-                    <Progress 
-                      percent={metrics.cashPercentage} 
-                      strokeColor={colors.purple}
-                      strokeWidth={8}
-                      showInfo={false}
-                    />
-                  </Flex>
-                </Card>
+                  <Text type="secondary" style={{ fontSize: '12px' }}>
+                    Source: <Tag color="processing">{s.dataSource || 'local'}</Tag>
+                  </Text>
+                </ResponsiveStatCard>
               </Col>
-              
-              <Col xs={24} md={12}>
-                <Card
-                  style={{ 
-                    height: '100%',
-                    background: `linear-gradient(135deg, ${colors.primary}15, ${colors.primary}08)`,
-                    borderRadius: '12px',
-                    border: `1px solid ${colors.primary}20`,
-                  }}
-                  bodyStyle={{ padding: '20px' }}
+
+              <Col xs={24} sm={12} md={8} lg={6}>
+                <ResponsiveStatCard
+                  title="Cost of Goods"
+                  value={s.totalCOGS || 0}
+                  prefix="KES"
+                  icon={<BarcodeOutlined />}
+                  color={colors.warning}
                 >
-                  <Flex vertical gap="middle">
-                    <Flex justify="space-between" align="center">
-                      <Flex align="center" gap="small">
-                        <div style={{
-                          background: `${colors.primary}20`,
-                          borderRadius: '8px',
-                          padding: '8px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center'
-                        }}>
-                          <BankOutlined style={{ color: colors.primary, fontSize: '20px' }} />
-                        </div>
-                        <div>
-                          <Text strong style={{ fontSize: '16px', color: token.colorTextHeading }}>
-                            Bank/Mpesa Payments
-                          </Text>
-                          <Text type="secondary" style={{ fontSize: '12px' }}>
-                            {metrics.mpesaBankTransactions} transactions
-                          </Text>
-                        </div>
-                      </Flex>
-                      <Tag color="blue" style={{ fontSize: '12px', fontWeight: '500' }}>
-                        {metrics.mpesaBankPercentage.toFixed(1)}%
-                      </Tag>
-                    </Flex>
-                    
-                    <Text strong style={{ 
-                      fontSize: isMobile ? '24px' : '28px', 
-                      color: colors.primary,
-                      textAlign: 'center'
-                    }}>
-                      {CalculationUtils.formatCurrency(metrics.totalBankMpesa)}
-                    </Text>
-                    
-                    <Progress 
-                      percent={metrics.mpesaBankPercentage} 
-                      strokeColor={colors.primary}
-                      strokeWidth={8}
-                      showInfo={false}
-                    />
-                  </Flex>
-                </Card>
+                  <Text type="secondary" style={{ fontSize: '12px' }}>
+                    Items: {s.totalItemsSold || 0}
+                  </Text>
+                </ResponsiveStatCard>
+              </Col>
+
+              <Col xs={24} sm={12} md={8} lg={6}>
+                <ResponsiveStatCard
+                  title="Net Profit"
+                  value={s.netProfit || 0}
+                  prefix="KES"
+                  icon={<RiseOutlined />}
+                  color={colors.success}
+                >
+                  <Text type="secondary" style={{ fontSize: '12px' }}>
+                    Margin: {s.profitMargin || 0}%
+                  </Text>
+                </ResponsiveStatCard>
+              </Col>
+
+              <Col xs={24} sm={12} md={8} lg={6}>
+                <ResponsiveStatCard
+                  title="Transactions"
+                  value={s.totalTransactions || 0}
+                  icon={<ShoppingCartOutlined />}
+                  color={colors.purple}
+                  suffix="sales"
+                />
               </Col>
             </Row>
-          </DeviceAwareCard>
+
+            {/* Payment Composition */}
+            <Card
+              title={
+                <Flex align="center" gap="small">
+                  <BankOutlined style={{ color: colors.primary }} />
+                  <Text strong>Payment Composition</Text>
+                </Flex>
+              }
+              style={{ marginTop: 16, borderRadius: 12 }}
+            >
+              <Row gutter={[layoutConfig.gap, layoutConfig.gap]}>
+                <Col xs={24} md={12}>
+                  <Card
+                    style={{
+                      background: `${colors.success}10`,
+                      borderRadius: 12,
+                      border: 'none'
+                    }}
+                    bodyStyle={{ padding: 16 }}
+                  >
+                    <Flex justify="space-between" align="center" style={{ marginBottom: 8 }}>
+                      <Text strong style={{ color: colors.success }}>
+                        <MoneyCollectOutlined /> Cash
+                      </Text>
+                      <Tag color="green">{s.cashPercentage || 0}%</Tag>
+                    </Flex>
+                    <Title level={isMobile ? 4 : 3} style={{ color: colors.success, margin: '4px 0' }}>
+                      KES {CalculationUtils.safeNumber(s.totalCash).toLocaleString('en-KE', {
+                        minimumFractionDigits: 2
+                      })}
+                    </Title>
+                    <Progress
+                      percent={s.cashPercentage || 0}
+                      strokeColor={colors.success}
+                      showInfo={false}
+                    />
+                  </Card>
+                </Col>
+                <Col xs={24} md={12}>
+                  <Card
+                    style={{
+                      background: `${colors.primary}10`,
+                      borderRadius: 12,
+                      border: 'none'
+                    }}
+                    bodyStyle={{ padding: 16 }}
+                  >
+                    <Flex justify="space-between" align="center" style={{ marginBottom: 8 }}>
+                      <Text strong style={{ color: colors.primary }}>
+                        <BankOutlined /> Bank / Mpesa
+                      </Text>
+                      <Tag color="blue">{s.mpesaBankPercentage || 0}%</Tag>
+                    </Flex>
+                    <Title level={isMobile ? 4 : 3} style={{ color: colors.primary, margin: '4px 0' }}>
+                      KES {CalculationUtils.safeNumber(s.totalBankMpesa).toLocaleString('en-KE', {
+                        minimumFractionDigits: 2
+                      })}
+                    </Title>
+                    <Progress
+                      percent={s.mpesaBankPercentage || 0}
+                      strokeColor={colors.primary}
+                      showInfo={false}
+                    />
+                  </Card>
+                </Col>
+              </Row>
+            </Card>
+          </Spin>
         )}
 
-        {activePerformanceTab === 'transactions' && (
-          <DeviceAwareCard 
-            title={`Recent Transactions (${transactions.length})`}
-            extra={
-              <Button 
-                icon={<ReloadOutlined />} 
-                onClick={handleManualRefresh}
-                size="small"
-                loading={transactionsLoading}
-              >
-                Refresh
-              </Button>
-            }
-            loading={transactionsLoading}
-          >
-            {transactions.length > 0 ? (
-              <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
-                {transactions.map(t => (
-                  <TransactionItem key={t._id} transaction={t} screens={screens} colors={colors} />
-                ))}
-              </div>
-            ) : (
-              <Empty
-                description="No transactions found"
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-                style={{ 
-                  padding: '40px 0',
-                  background: token.colorBgLayout,
-                  borderRadius: '8px'
-                }}
-              >
-                <Button 
-                  type="primary" 
-                  onClick={handleManualRefresh}
-                  loading={transactionsLoading}
-                >
-                  Refresh Transactions
-                </Button>
-              </Empty>
-            )}
-          </DeviceAwareCard>
+        {/* ═══════════════ TRANSACTIONS TAB ═══════════════ */}
+        {summaryTab === 'transactions' && (
+          <Spin spinning={transactionsLoading}>
+            <Card
+              title={
+                <Flex align="center" gap="small">
+                  <FileTextOutlined style={{ color: colors.primary }} />
+                  <Text strong>
+                    Transactions ({cashierTransactions.length})
+                  </Text>
+                </Flex>
+              }
+              style={{ borderRadius: 12 }}
+              bodyStyle={{ padding: isMobile ? 12 : 16 }}
+            >
+              {cashierTransactions.length > 0 ? (
+                <List
+                  dataSource={cashierTransactions}
+                  renderItem={t => (
+                    <TransactionItem
+                      key={t?._id || Math.random()}
+                      transaction={t}
+                      screens={screens}
+                      colors={colors}
+                    />
+                  )}
+                  pagination={{
+                    pageSize: isMobile ? 5 : 10,
+                    size: isMobile ? 'small' : 'default',
+                    simple: isMobile,
+                    showSizeChanger: !isMobile,
+                    showTotal: !isMobile
+                      ? (total, range) => `${range[0]}-${range[1]} of ${total} transactions`
+                      : undefined
+                  }}
+                />
+              ) : (
+                <Empty
+                  description={
+                    <Text type="secondary">
+                      No transactions found in this period
+                    </Text>
+                  }
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  style={{ padding: '40px 0' }}
+                />
+              )}
+            </Card>
+          </Spin>
         )}
       </div>
     );
   };
 
   // =============================================
-  // MOBILE DRAWER
+  // RENDER
   // =============================================
-
-  const PerformanceDrawer = () => (
-    <Drawer
-      title={
-        <Flex vertical gap="small">
-          <Flex align="center" gap="small">
-            <UserOutlined style={{ color: colors.primary }} />
-            <Text strong style={{ fontSize: '16px' }}>{viewingCashier?.name}</Text>
-          </Flex>
-          <Text type="secondary" style={{ fontSize: '12px' }}>
-            {viewingCashier?.email}
-          </Text>
-        </Flex>
-      }
-      placement="right"
-      onClose={() => setDrawerVisible(false)}
-      open={drawerVisible}
-      width={screens.width > 400 ? '90%' : '100%'}
-      bodyStyle={{ 
-        padding: '16px',
-        paddingBottom: '80px'
-      }}
-      extra={
-        <Space>
-          <Button 
-            icon={<ReloadOutlined />}
-            onClick={handleManualRefresh}
-            size="small"
-            loading={transactionsLoading}
-          />
-          <Button 
-            icon={<CloseOutlined />}
-            onClick={() => setDrawerVisible(false)}
-            type="text"
-            size="small"
-          />
-        </Space>
-      }
-    >
-      {viewingCashier && <CashierPerformanceView cashier={viewingCashier} />}
-    </Drawer>
-  );
-
-  // =============================================
-  // MOBILE NAVIGATION BAR
-  // =============================================
-
-  const MobileNavBar = () => {
-    if (!isMobile) return null;
-    
-    return (
-      <Footer style={{
-        position: 'fixed',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        backgroundColor: '#ffffff',
-        borderTop: '1px solid #f0f0f0',
-        padding: '8px 16px',
-        zIndex: 1000,
-        boxShadow: '0 -2px 10px rgba(0,0,0,0.1)',
-        height: '60px'
-      }}>
-        <Row justify="space-around" align="middle" style={{ height: '100%' }}>
-          <Col span={8} style={{ textAlign: 'center' }}>
-            <Button
-              type={mobileView === 'list' ? 'primary' : 'text'}
-              icon={<MenuOutlined />}
-              onClick={() => setMobileView('list')}
-              block
-              style={{ 
-                height: '44px',
-                fontSize: '10px',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}
-            >
-              List
-            </Button>
-          </Col>
-          <Col span={8} style={{ textAlign: 'center' }}>
-            <Button
-              type={mobileView === 'stats' ? 'primary' : 'text'}
-              icon={<BarChartOutlined />}
-              onClick={() => setMobileView('stats')}
-              block
-              style={{ 
-                height: '44px',
-                fontSize: '10px',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}
-            >
-              Stats
-            </Button>
-          </Col>
-          <Col span={8} style={{ textAlign: 'center' }}>
-            <Button
-              type="text"
-              icon={<UserAddOutlined />}
-              onClick={handleAddCashier}
-              block
-              style={{ 
-                height: '44px',
-                fontSize: '10px',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}
-            >
-              Add
-            </Button>
-          </Col>
-        </Row>
-      </Footer>
-    );
-  };
-
-  // =============================================
-  // MAIN COMPONENT RENDER
-  // =============================================
-
   return (
     <Layout style={{ minHeight: '100vh', background: token.colorBgLayout }}>
-      <Content style={{ 
-        padding: isMobile ? '16px' : '24px',
+      <Content style={{
+        padding: layoutConfig.padding,
         maxWidth: '1400px',
         margin: '0 auto',
         width: '100%',
-        paddingBottom: isMobile ? '80px' : '24px'
+        paddingBottom: isMobile ? '80px' : layoutConfig.padding
       }}>
-        {/* Header Section */}
-        <DeviceAwareCard
-          title={
-            <Flex vertical gap="small">
-              <Flex align="center" gap="middle" wrap="wrap">
-                <div style={{
-                  background: `linear-gradient(135deg, ${colors.primary}, ${colors.purple})`,
-                  borderRadius: '12px',
-                  padding: '12px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}>
-                  <TeamOutlined style={{ 
-                    color: 'white', 
-                    fontSize: isMobile ? '24px' : '28px'
-                  }} />
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <Title level={isMobile ? 4 : 3} style={{ margin: 0, lineHeight: 1.2 }}>
-                    Cashier Management
-                  </Title>
-                  <Text type="secondary" style={{ 
-                    fontSize: layoutConfig.fontSize.subtitle,
-                    display: 'block',
-                    marginTop: '4px'
-                  }}>
-                    Manage your cashiers and monitor performance metrics across all devices
-                  </Text>
-                </div>
-              </Flex>
-              
-              {/* Search and Controls */}
-              <Flex 
-                gap="middle" 
-                wrap="wrap" 
-                justify="space-between" 
-                style={{ marginTop: isMobile ? '12px' : '16px' }}
-              >
-                <Input
-                  placeholder="Search cashiers by name, email or phone..."
-                  allowClear
-                  value={searchText}
-                  onChange={(e) => handleSearch(e.target.value)}
-                  style={{ 
-                    width: isMobile ? '100%' : 300,
-                    maxWidth: '100%',
-                    borderRadius: '8px'
-                  }}
-                  size={isMobile ? 'middle' : 'large'}
-                  prefix={<SearchOutlined />}
-                  suffix={
-                    <Tooltip title="Search cashiers">
-                      <FilterOutlined style={{ color: token.colorTextSecondary }} />
-                    </Tooltip>
-                  }
-                />
-                
-                <Flex gap="small" wrap="wrap">
-                  <Select
-                    placeholder="Status"
-                    value={statusFilter}
-                    onChange={setStatusFilter}
-                    style={{ 
-                      width: isMobile ? '100%' : 120,
-                      maxWidth: '100%'
-                    }}
-                    size={isMobile ? 'middle' : 'large'}
-                  >
-                    <Option value="all">All Status</Option>
-                    <Option value="active">Active</Option>
-                    <Option value="inactive">Inactive</Option>
-                  </Select>
-                  
-                  <Tooltip title="Refresh Cashiers">
-                    <Button 
-                      icon={<ReloadOutlined spin={loading} />}
-                      onClick={fetchCashiers}
-                      loading={loading}
-                      size={isMobile ? 'middle' : 'large'}
-                      type="primary"
-                      style={{ 
-                        background: colors.primary, 
-                        borderColor: colors.primary,
-                        minWidth: isMobile ? '40px' : 'auto'
-                      }}
-                    >
-                      {!isMobile && 'Refresh'}
-                    </Button>
-                  </Tooltip>
-                  
-                  <Button 
-                    type="primary" 
-                    icon={<UserAddOutlined />} 
-                    onClick={handleAddCashier}
-                    size={isMobile ? 'middle' : 'large'}
-                    style={{ 
-                      background: `linear-gradient(45deg, ${colors.primary}, ${colors.success})`,
-                      border: 'none',
-                      minWidth: isMobile ? '40px' : 'auto'
-                    }}
-                  >
-                    {!isMobile && 'Add Cashier'}
-                  </Button>
-                </Flex>
-              </Flex>
-              
-              {/* Stats Summary */}
-              <Row gutter={[8, 8]} style={{ marginTop: '16px' }}>
-                <Col xs={12} sm={6}>
-                  <Card size="small" style={{ textAlign: 'center', borderRadius: '8px' }}>
-                    <Statistic 
-                      title={<Text style={{ fontSize: isMobile ? '11px' : '12px' }}>Total Cashiers</Text>}
-                      value={cashiers.length} 
-                      valueStyle={{ color: colors.primary, fontSize: isMobile ? '16px' : '20px' }}
-                    />
-                  </Card>
-                </Col>
-                <Col xs={12} sm={6}>
-                  <Card size="small" style={{ textAlign: 'center', borderRadius: '8px' }}>
-                    <Statistic 
-                      title={<Text style={{ fontSize: isMobile ? '11px' : '12px' }}>Active</Text>}
-                      value={cashiers.filter(c => c.status === 'active').length} 
-                      valueStyle={{ color: colors.success, fontSize: isMobile ? '16px' : '20px' }}
-                    />
-                  </Card>
-                </Col>
-                <Col xs={12} sm={6}>
-                  <Card size="small" style={{ textAlign: 'center', borderRadius: '8px' }}>
-                    <Statistic 
-                      title={<Text style={{ fontSize: isMobile ? '11px' : '12px' }}>Inactive</Text>}
-                      value={cashiers.filter(c => c.status === 'inactive').length} 
-                      valueStyle={{ color: colors.warning, fontSize: isMobile ? '16px' : '20px' }}
-                    />
-                  </Card>
-                </Col>
-                <Col xs={12} sm={6}>
-                  <Card size="small" style={{ textAlign: 'center', borderRadius: '8px' }}>
-                    <Statistic 
-                      title={<Text style={{ fontSize: isMobile ? '11px' : '12px' }}>Showing</Text>}
-                      value={filteredCashiers.length} 
-                      suffix={`/ ${cashiers.length}`}
-                      valueStyle={{ color: colors.purple, fontSize: isMobile ? '16px' : '20px' }}
-                    />
-                  </Card>
-                </Col>
-              </Row>
+        <Card
+          style={{
+            borderRadius: 12,
+            marginBottom: 24,
+            border: 'none',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+          }}
+          bodyStyle={{ padding: isMobile ? 16 : 24 }}
+        >
+          <Flex vertical gap="middle">
+            <Flex align="center" gap="middle" wrap="wrap">
+              <div style={{
+                background: `linear-gradient(135deg, ${colors.primary}, ${colors.purple})`,
+                borderRadius: 12,
+                padding: 12,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}>
+                <TeamOutlined style={{ color: 'white', fontSize: isMobile ? 24 : 28 }} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <Title level={isMobile ? 4 : 3} style={{ margin: 0 }}>Cashier Management</Title>
+                <Text type="secondary" style={{ fontSize: isMobile ? 12 : 14 }}>
+                  Manage cashiers and view their performance summary
+                </Text>
+              </div>
             </Flex>
-          }
-          extra={null}
-        />
 
-        {/* Mobile Navigation */}
-        {isMobile && <MobileNavBar />}
+            <Flex gap="middle" wrap="wrap" justify="space-between">
+              <Input
+                placeholder="Search by name, email or phone..."
+                allowClear
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+                style={{ width: isMobile ? '100%' : 300 }}
+                size={isMobile ? 'middle' : 'large'}
+                prefix={<SearchOutlined />}
+              />
 
-        {/* Content based on mobile view */}
-        {!isMobile || mobileView === 'list' ? (
-          <Spin 
-            spinning={loading} 
-            tip={isMobile ? "Loading..." : "Loading cashier data..."}
-            size="large"
-            style={{ minHeight: '200px' }}
-          >
-            <AdaptiveTable 
-              columns={columns}
-              dataSource={filteredCashiers}
-              loading={loading}
-              onRow={(record) => ({
-                onClick: () => {
-                  if (isMobile) {
-                    handleViewCashier(record);
-                  }
-                },
-                style: { 
-                  cursor: isMobile ? 'pointer' : 'default',
-                  transition: 'all 0.2s ease'
-                }
-              })}
-              locale={{
-                emptyText: (
-                  <Empty
-                    description="No cashiers found"
-                    image={Empty.PRESENTED_IMAGE_SIMPLE}
-                  />
-                )
-              }}
-            />
-          </Spin>
-        ) : (
-          <div style={{ padding: '16px' }}>
-            <DeviceAwareCard title="Quick Stats">
-              <Row gutter={[16, 16]}>
-                <Col span={12}>
+              <Flex gap="small" wrap="wrap">
+                <Select
+                  value={statusFilter}
+                  onChange={setStatusFilter}
+                  style={{ width: isMobile ? '100%' : 130 }}
+                  size={isMobile ? 'middle' : 'large'}
+                >
+                  <Option value="all">All Status</Option>
+                  <Option value="active">Active</Option>
+                  <Option value="inactive">Inactive</Option>
+                </Select>
+
+                <Button
+                  icon={<ReloadOutlined spin={loading} />}
+                  onClick={fetchCashiers}
+                  loading={loading}
+                  size={isMobile ? 'middle' : 'large'}
+                  type="primary"
+                >
+                  {!isMobile && 'Refresh'}
+                </Button>
+
+                <Button
+                  type="primary"
+                  icon={<UserAddOutlined />}
+                  onClick={handleAddCashier}
+                  size={isMobile ? 'middle' : 'large'}
+                  style={{
+                    background: `linear-gradient(45deg, ${colors.primary}, ${colors.success})`,
+                    border: 'none'
+                  }}
+                >
+                  {!isMobile && 'Add Cashier'}
+                </Button>
+              </Flex>
+            </Flex>
+
+            <Row gutter={[8, 8]}>
+              <Col xs={12} sm={6}>
+                <Card size="small" style={{ textAlign: 'center' }}>
                   <Statistic
-                    title="Total Cashiers"
+                    title={<Text style={{ fontSize: isMobile ? 11 : 12 }}>Total</Text>}
                     value={cashiers.length}
-                    valueStyle={{ color: colors.primary }}
+                    valueStyle={{ color: colors.primary, fontSize: isMobile ? 16 : 20 }}
                   />
-                </Col>
-                <Col span={12}>
+                </Card>
+              </Col>
+              <Col xs={12} sm={6}>
+                <Card size="small" style={{ textAlign: 'center' }}>
                   <Statistic
-                    title="Active"
-                    value={cashiers.filter(c => c.status === 'active').length}
-                    valueStyle={{ color: colors.success }}
+                    title={<Text style={{ fontSize: isMobile ? 11 : 12 }}>Active</Text>}
+                    value={cashiers.filter(c => getCashierStatus(c) === 'active').length}
+                    valueStyle={{ color: colors.success, fontSize: isMobile ? 16 : 20 }}
                   />
-                </Col>
-                <Col span={12}>
+                </Card>
+              </Col>
+              <Col xs={12} sm={6}>
+                <Card size="small" style={{ textAlign: 'center' }}>
                   <Statistic
-                    title="Inactive"
-                    value={cashiers.filter(c => c.status === 'inactive').length}
-                    valueStyle={{ color: colors.warning }}
+                    title={<Text style={{ fontSize: isMobile ? 11 : 12 }}>Inactive</Text>}
+                    value={cashiers.filter(c => getCashierStatus(c) === 'inactive').length}
+                    valueStyle={{ color: colors.warning, fontSize: isMobile ? 16 : 20 }}
                   />
-                </Col>
-                <Col span={12}>
+                </Card>
+              </Col>
+              <Col xs={12} sm={6}>
+                <Card size="small" style={{ textAlign: 'center' }}>
                   <Statistic
-                    title="Showing"
+                    title={<Text style={{ fontSize: isMobile ? 11 : 12 }}>Showing</Text>}
                     value={filteredCashiers.length}
                     suffix={`/ ${cashiers.length}`}
-                    valueStyle={{ color: colors.purple }}
+                    valueStyle={{ color: colors.purple, fontSize: isMobile ? 16 : 20 }}
                   />
-                </Col>
-              </Row>
-            </DeviceAwareCard>
-            
-            <DeviceAwareCard title="Recent Activity" style={{ marginTop: '16px' }}>
-              <List
-                dataSource={cashiers.slice(0, 5)}
-                renderItem={(cashier) => (
-                  <List.Item>
-                    <List.Item.Meta
-                      avatar={<Avatar icon={<UserOutlined />} />}
-                      title={cashier.name}
-                      description={
-                        <div>
-                          <Text type="secondary" style={{ fontSize: '12px' }}>
-                            {cashier.email}
-                          </Text>
-                          <div style={{ marginTop: '4px' }}>
-                            <Tag color={cashier.status === 'active' ? 'success' : 'warning'} size="small">
-                              {cashier.status}
-                            </Tag>
-                            {cashier.lastLogin && (
-                              <Text type="secondary" style={{ fontSize: '11px', marginLeft: '8px' }}>
-                                Last login: {dayjs(cashier.lastLogin).format('MMM D')}
-                              </Text>
-                            )}
-                          </div>
-                        </div>
-                      }
-                    />
-                    <Button 
-                      size="small" 
-                      type="link"
-                      onClick={() => handleViewCashier(cashier)}
-                    >
-                      View
-                    </Button>
-                  </List.Item>
-                )}
-              />
-            </DeviceAwareCard>
-          </div>
-        )}
+                </Card>
+              </Col>
+            </Row>
+          </Flex>
+        </Card>
 
-        {/* Device Status Indicator */}
-        {isMobile && (
-          <div style={{ 
-            position: 'fixed', 
-            bottom: '80px', 
-            right: '16px',
-            zIndex: 1000
-          }}>
-            <FloatButton.Group
-              trigger="click"
-              type="primary"
-              icon={<SettingOutlined />}
-              tooltip="Quick Actions"
-            >
-              <FloatButton 
-                icon={<ReloadOutlined />}
-                onClick={fetchCashiers}
-                tooltip="Refresh List"
-              />
-              <FloatButton 
-                icon={<FilterOutlined />}
-                onClick={() => setMobileView(mobileView === 'list' ? 'stats' : 'list')}
-                tooltip="Toggle View"
-              />
-              <FloatButton.BackTop visibilityHeight={0} tooltip="Back to Top" />
-            </FloatButton.Group>
-          </div>
-        )}
-
-        {/* Add/Edit Cashier Modal - UPDATED WITH PASSWORD FIELD */}
-        <Modal
-          title={
-            <Flex align="center" gap="small">
-              {editingCashier ? (
-                <>
-                  <EditOutlined style={{ color: colors.primary }} />
-                  <span>Edit Cashier Details</span>
-                </>
-              ) : (
-                <>
-                  <UserAddOutlined style={{ color: colors.success }} />
-                  <span>Add New Cashier</span>
-                </>
-              )}
-            </Flex>
-          }
-          open={isModalOpen}
-          onCancel={() => { 
-            setIsModalOpen(false); 
-            form.resetFields(); 
-            setPasswordValue('');
+        <Table
+          columns={columns}
+          dataSource={filteredCashiers}
+          loading={loading}
+          rowKey={(record) => record?._id || Math.random().toString(36)}
+          pagination={{
+            pageSize: isMobile ? 5 : 10,
+            size: isMobile ? 'small' : 'default',
+            showSizeChanger: !isMobile,
+            showTotal: (total) => `Total ${total} cashiers`
           }}
+          scroll={{ x: 'max-content' }}
+          size={isMobile ? 'small' : 'middle'}
+          locale={{ emptyText: <Empty description="No cashiers found" /> }}
+          onRow={(record) => ({
+            onClick: () => { if (isMobile && record) handleViewCashier(record); },
+            style: { cursor: isMobile ? 'pointer' : 'default' }
+          })}
+        />
+
+        {isMobile && (
+          <FloatButton.Group
+            trigger="click"
+            type="primary"
+            icon={<SettingOutlined />}
+            style={{ right: 24, bottom: 80 }}
+          >
+            <FloatButton icon={<ReloadOutlined />} onClick={fetchCashiers} tooltip="Refresh" />
+            <FloatButton icon={<UserAddOutlined />} onClick={handleAddCashier} tooltip="Add Cashier" />
+            <FloatButton icon={<MobileOutlined />} tooltip={`Mobile ${screens?.width}×${screens?.height}`} />
+            <FloatButton.BackTop visibilityHeight={0} />
+          </FloatButton.Group>
+        )}
+
+        {/* Add/Edit Modal */}
+        <Modal
+          title={editingCashier ? 'Edit Cashier' : 'Add New Cashier'}
+          open={isModalOpen}
+          onCancel={() => { setIsModalOpen(false); form.resetFields(); setPasswordValue(''); }}
           footer={null}
           destroyOnClose
           width={isMobile ? '90%' : 550}
           centered
-          style={{ borderRadius: '12px' }}
-          bodyStyle={{ padding: isMobile ? '16px' : '24px' }}
         >
-          <Form 
-            form={form} 
-            layout="vertical" 
-            onFinish={handleSubmit}
-            initialValues={{
-              name: '',
-              email: '',
-              phone: '',
-              password: ''
-            }}
-          >
-            <Form.Item 
+          <Form form={form} layout="vertical" onFinish={handleSubmit}>
+            <Form.Item
               label="Full Name"
-              name="name" 
-              rules={[{ required: true, message: 'Please enter cashier name' }]}
+              name="name"
+              rules={[{ required: true, message: 'Please enter name' }]}
             >
-              <Input 
-                placeholder="Enter cashier name" 
-                size="large"
-                prefix={<UserOutlined />}
-                style={{ borderRadius: '8px' }}
-              />
+              <Input placeholder="Cashier name" size="large" prefix={<UserOutlined />} />
             </Form.Item>
-            
-            <Form.Item 
+            <Form.Item
               label="Email"
-              name="email" 
+              name="email"
               rules={[
                 { required: true, message: 'Please enter email' },
-                { type: 'email', message: 'Please enter a valid email' }
+                { type: 'email', message: 'Enter a valid email' }
               ]}
             >
-              <Input 
-                placeholder="Enter email address" 
-                size="large"
-                prefix={<MailOutlined />}
-                style={{ borderRadius: '8px' }}
-              />
+              <Input placeholder="email@example.com" size="large" prefix={<MailOutlined />} />
             </Form.Item>
-            
-            <Form.Item 
-              label="Phone Number"
-              name="phone"
-            >
-              <Input 
-                placeholder="Enter phone number (optional)" 
-                size="large"
-                prefix={<PhoneOutlined />}
-                style={{ borderRadius: '8px' }}
-              />
+            <Form.Item label="Phone" name="phone">
+              <Input placeholder="Phone (optional)" size="large" prefix={<PhoneOutlined />} />
             </Form.Item>
-            
-            {/* Password Field - NEW */}
-            <Form.Item 
+            <Form.Item
               label={
                 <Flex align="center" gap="small">
                   <LockOutlined />
                   <span>Password {!editingCashier && <Text type="danger">*</Text>}</span>
-                  {editingCashier && (
-                    <Tag color="orange" style={{ marginLeft: 8 }}>
-                      Leave blank to keep current
-                    </Tag>
-                  )}
+                  {editingCashier && <Tag color="orange">Leave blank to keep current</Tag>}
                 </Flex>
               }
               name="password"
               rules={[
-                { 
-                  required: !editingCashier, 
-                  message: 'Password is required for new cashiers' 
-                },
-                { 
-                  min: 6, 
-                  message: 'Password must be at least 6 characters' 
-                }
+                { required: !editingCashier, message: 'Password is required for new cashiers' },
+                { min: 6, message: 'At least 6 characters' }
               ]}
-              validateTrigger="onBlur"
             >
               <Input.Password
-                placeholder={editingCashier ? "Enter new password (optional)" : "Enter password"}
+                placeholder={editingCashier ? 'New password (optional)' : 'Enter password'}
                 size="large"
                 prefix={<KeyOutlined />}
-                iconRender={(visible) => visible ? <EyeOutlined /> : <EyeOutlined />}
-                visibilityToggle={{ 
-                  visible: showPassword, 
-                  onVisibleChange: setShowPassword 
-                }}
+                visibilityToggle={{ visible: showPassword, onVisibleChange: setShowPassword }}
                 onChange={(e) => setPasswordValue(e.target.value)}
-                style={{ borderRadius: '8px' }}
               />
             </Form.Item>
-            
-            {/* Password Strength Indicator */}
+
             {passwordValue && (
               <div style={{ marginBottom: 24 }}>
                 <PasswordStrengthIndicator password={passwordValue} />
               </div>
             )}
-            
-            {/* Password Tips */}
+
             <Alert
               message="Password Requirements"
               description={
                 <ul style={{ margin: 0, paddingLeft: 20, fontSize: 12 }}>
                   <li>Minimum 6 characters</li>
-                  <li>For better security, use a mix of letters, numbers, and special characters</li>
-                  {editingCashier && <li>Leave blank to keep the current password unchanged</li>}
+                  <li>Mix letters, numbers, symbols</li>
+                  {editingCashier && <li>Leave blank to keep current password</li>}
                 </ul>
               }
               type="info"
               showIcon
               icon={<InfoCircleOutlined />}
-              style={{ marginBottom: 24, background: token.colorInfoBg, border: 'none' }}
+              style={{ marginBottom: 24 }}
             />
-            
-            <Form.Item style={{ marginTop: 32 }}>
-              <Button 
-                type="primary" 
-                htmlType="submit" 
-                loading={loading} 
+
+            <Form.Item style={{ marginBottom: 0 }}>
+              <Button
+                type="primary"
+                htmlType="submit"
+                loading={loading}
                 block
                 size="large"
-                style={{ 
+                style={{
                   background: `linear-gradient(45deg, ${colors.primary}, ${colors.success})`,
                   border: 'none',
-                  borderRadius: '8px',
-                  fontWeight: '500',
-                  height: '48px',
-                  fontSize: '16px',
+                  height: 48,
+                  fontSize: 16
                 }}
               >
-                {editingCashier ? (passwordValue ? 'Update Cashier with New Password' : 'Update Cashier') : 'Add Cashier with Password'}
+                {editingCashier ? 'Update Cashier' : 'Add Cashier'}
               </Button>
             </Form.Item>
           </Form>
         </Modal>
 
-        {/* Desktop Performance Modal */}
+        {/* Desktop Summary Modal */}
         {!isMobile && (
           <Modal
             title={
-              <Flex align="center" gap="middle" style={{ paddingRight: 20 }}>
-                <div style={{
-                  background: `linear-gradient(135deg, ${colors.primary}, ${colors.purple})`,
-                  borderRadius: '10px',
-                  padding: '10px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}>
-                  <BarChartOutlined style={{ color: 'white', fontSize: '20px' }} />
-                </div>
-                <Flex vertical style={{ flex: 1, minWidth: 0 }}>
-                  <Text strong style={{ 
-                    fontSize: '18px',
-                    color: token.colorTextHeading,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap'
-                  }}>
-                    {viewingCashier?.name}
-                  </Text>
-                  <Text type="secondary" style={{ 
-                    fontSize: '12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px'
-                  }}>
-                    <MailOutlined />
-                    {viewingCashier?.email}
+              <Flex align="center" gap="middle">
+                <BarChartOutlined style={{ fontSize: 20, color: colors.purple }} />
+                <Flex vertical>
+                  <Text strong>{viewingCashier?.name || 'Cashier'}</Text>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    {viewingCashier?.email || ''}
                   </Text>
                 </Flex>
               </Flex>
             }
             open={isViewModalOpen}
             onCancel={() => {
-              console.log('❌ Closing performance view');
               setIsViewModalOpen(false);
-              setCashierPerformance({});
-              setTransactions([]);
+              setCashierSummary({});
+              setCashierTransactions([]);
             }}
             footer={[
-              <Button 
-                key="refresh" 
+              <Button
+                key="refresh"
                 icon={<ReloadOutlined />}
                 onClick={handleManualRefresh}
-                loading={transactionsLoading}
-                style={{ borderRadius: '8px' }}
+                loading={summaryLoading || transactionsLoading}
               >
                 Refresh
               </Button>,
-              <Button 
-                key="close" 
+              <Button
+                key="close"
                 onClick={() => {
-                  console.log('❌ Closing performance view');
                   setIsViewModalOpen(false);
-                  setCashierPerformance({});
-                  setTransactions([]);
+                  setCashierSummary({});
+                  setCashierTransactions([]);
                 }}
-                style={{ borderRadius: '8px' }}
-                size="middle"
               >
                 Close
               </Button>
             ]}
-            width="90%"
-            style={{ 
-              top: 20,
-              maxWidth: '1200px',
-              borderRadius: '12px',
-            }}
-            bodyStyle={{ 
-              padding: '24px',
+            width={isMobile ? '95%' : 1000}
+            style={{ top: 20 }}
+            bodyStyle={{
+              padding: 24,
               maxHeight: 'calc(100vh - 200px)',
-              overflowY: 'auto',
+              overflowY: 'auto'
             }}
           >
-            <Spin spinning={transactionsLoading} size="large" tip="Loading performance data...">
-              {viewingCashier && <CashierPerformanceView cashier={viewingCashier} />}
-            </Spin>
+            {viewingCashier && <CashierSummaryView />}
           </Modal>
         )}
 
-        {/* Mobile Performance Drawer */}
-        <PerformanceDrawer />
+        {/* Mobile Summary Drawer */}
+        <Drawer
+          title={
+            <Flex vertical gap="small">
+              <Flex align="center" gap="small">
+                <UserOutlined style={{ color: colors.primary }} />
+                <Text strong>{viewingCashier?.name || 'Cashier'}</Text>
+              </Flex>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {viewingCashier?.email || ''}
+              </Text>
+            </Flex>
+          }
+          placement="right"
+          onClose={() => {
+            setDrawerVisible(false);
+            setCashierSummary({});
+            setCashierTransactions([]);
+          }}
+          open={drawerVisible}
+          width={screens?.width > 400 ? '90%' : '100%'}
+          bodyStyle={{ padding: 16, paddingBottom: 80 }}
+          extra={
+            <Space>
+              <Button
+                icon={<ReloadOutlined />}
+                onClick={handleManualRefresh}
+                size="small"
+                loading={summaryLoading || transactionsLoading}
+              />
+              <Button
+                icon={<CloseOutlined />}
+                onClick={() => setDrawerVisible(false)}
+                type="text"
+                size="small"
+              />
+            </Space>
+          }
+        >
+          {viewingCashier && <CashierSummaryView />}
+        </Drawer>
       </Content>
     </Layout>
   );

@@ -61,82 +61,185 @@ export const CalculationUtils = {
     return (profitNum / revenueNum) * 100;
   },
 
-// Modified version of calculateCostFromItems
-calculateCostFromItems: (transaction, products = []) => {
-  try {
-    // If cost is already provided and valid, use it
-    if (transaction.cost && CalculationUtils.safeNumber(transaction.cost) > 0) {
-      return CalculationUtils.safeNumber(transaction.cost);
-    }
-    
-    if (transaction.totalCost && CalculationUtils.safeNumber(transaction.totalCost) > 0) {
-      return CalculationUtils.safeNumber(transaction.totalCost);
-    }
+  // =============================================
+  // COST-FROM-ITEMS RESOLVER (fully defensive)
+  // =============================================
+  // Handles ALL possible item shapes returned by the API:
+  //   - item.cost                        (line-level or per-unit)
+  //   - item.buyingPrice                 (per-unit)
+  //   - item.costPrice                   (per-unit)
+  //   - item.unitCost                    (per-unit)
+  //   - item.productId.buyingPrice       (populated object) ← NEW
+  //   - item.productId (string/id)       matched against products[]
+  // =============================================
+  calculateCostFromItems: (transaction, products = []) => {
+    try {
+      if (!transaction || typeof transaction !== 'object') return 0;
 
-    // Calculate cost from items
-    if (transaction.items && Array.isArray(transaction.items)) {
-      let totalCost = 0;
-      let hasActualCost = false;
-      
-      for (const item of transaction.items) {
-        const quantity = CalculationUtils.safeNumber(item.quantity, 1);
-        let itemCost = 0;
-        
-        // Try to get cost from different sources
-        if (item.cost && CalculationUtils.safeNumber(item.cost) > 0) {
-          itemCost = CalculationUtils.safeNumber(item.cost);
-          hasActualCost = true;
-        }
-        else if (item.buyingPrice && CalculationUtils.safeNumber(item.buyingPrice) > 0) {
-          itemCost = CalculationUtils.safeNumber(item.buyingPrice);
-          hasActualCost = true;
-        }
-        else if (item.productId && products.length > 0) {
-          const product = products.find(p => 
-            p._id && item.productId && p._id.toString() === item.productId.toString()
-          );
-          
-          if (product && product.buyingPrice && CalculationUtils.safeNumber(product.buyingPrice) > 0) {
-            itemCost = CalculationUtils.safeNumber(product.buyingPrice);
+      // ---- Prefer transaction-level cost if already present ----
+      if (transaction.cost && CalculationUtils.safeNumber(transaction.cost) > 0) {
+        return CalculationUtils.safeNumber(transaction.cost);
+      }
+
+      if (transaction.totalCost && CalculationUtils.safeNumber(transaction.totalCost) > 0) {
+        return CalculationUtils.safeNumber(transaction.totalCost);
+      }
+
+      // ---- Otherwise compute from items ----
+      if (transaction.items && Array.isArray(transaction.items)) {
+        let totalCost = 0;
+        let hasActualCost = false;
+
+        for (const item of transaction.items) {
+          if (!item || typeof item !== 'object') continue;
+
+          const quantity = CalculationUtils.safeNumber(item.quantity, 1);
+          let unitCost = 0;
+          let resolved = false;
+
+          // 1. item.cost (may be line-level OR per-unit — use as-is only if it
+          //    looks per-unit. To stay consistent with the server behaviour,
+          //    we treat it as PER-UNIT.)
+          if (item.cost !== undefined && CalculationUtils.safeNumber(item.cost) > 0) {
+            unitCost = CalculationUtils.safeNumber(item.cost);
+            resolved = true;
+          }
+
+          // 2. item.buyingPrice (per-unit — this is what the server saves)
+          if (!resolved && item.buyingPrice !== undefined && CalculationUtils.safeNumber(item.buyingPrice) > 0) {
+            unitCost = CalculationUtils.safeNumber(item.buyingPrice);
+            resolved = true;
+          }
+
+          // 3. item.costPrice (per-unit)
+          if (!resolved && item.costPrice !== undefined && CalculationUtils.safeNumber(item.costPrice) > 0) {
+            unitCost = CalculationUtils.safeNumber(item.costPrice);
+            resolved = true;
+          }
+
+          // 4. item.unitCost (per-unit)
+          if (!resolved && item.unitCost !== undefined && CalculationUtils.safeNumber(item.unitCost) > 0) {
+            unitCost = CalculationUtils.safeNumber(item.unitCost);
+            resolved = true;
+          }
+
+          // 5. ★ NEW ★ Populated productId object with buyingPrice
+          //    e.g. item.productId = { _id, name, buyingPrice, category }
+          if (
+            !resolved &&
+            item.productId &&
+            typeof item.productId === 'object' &&
+            item.productId.buyingPrice !== undefined &&
+            CalculationUtils.safeNumber(item.productId.buyingPrice) > 0
+          ) {
+            unitCost = CalculationUtils.safeNumber(item.productId.buyingPrice);
+            resolved = true;
+          }
+
+          // 6. Fallback: match productId (string or object._id) against products array
+          if (!resolved && item.productId && Array.isArray(products) && products.length > 0) {
+            const itemProductIdStr =
+              typeof item.productId === 'object' && item.productId !== null
+                ? item.productId._id?.toString()
+                : item.productId.toString();
+
+            const product = products.find(
+              (p) => p && p._id && p._id.toString() === itemProductIdStr
+            );
+
+            if (product && product.buyingPrice !== undefined && CalculationUtils.safeNumber(product.buyingPrice) > 0) {
+              unitCost = CalculationUtils.safeNumber(product.buyingPrice);
+              resolved = true;
+            }
+          }
+
+          // 7. Last-ditch fallback: match by productName against products array
+          if (!resolved && item.productName && Array.isArray(products) && products.length > 0) {
+            const product = products.find(
+              (p) => p && p.name && p.name === item.productName
+            );
+            if (product && product.buyingPrice !== undefined && CalculationUtils.safeNumber(product.buyingPrice) > 0) {
+              unitCost = CalculationUtils.safeNumber(product.buyingPrice);
+              resolved = true;
+            }
+          }
+
+          if (resolved) {
             hasActualCost = true;
+            totalCost += unitCost * quantity;
+          } else {
+            // No cost info for this item — count as 0, but keep going.
+            totalCost += 0;
           }
         }
-        
-        totalCost += itemCost * quantity;
+
+        // If no actual costs were found, return 0 rather than guessing.
+        if (!hasActualCost) {
+          console.log('⚠️ No actual buying prices found, returning 0 cost');
+          return 0;
+        }
+
+        return totalCost;
       }
-      
-      // If no actual costs were found, return 0 instead of estimating
-      if (!hasActualCost) {
-        console.log('⚠️ No actual buying prices found, returning 0 cost');
-        return 0;
-      }
-      
-      return totalCost;
+
+      return 0;
+    } catch (error) {
+      console.error('❌ Error calculating cost from items:', error);
+      return 0;
     }
-    
-    return 0;
-  } catch (error) {
-    console.error('❌ Error calculating cost from items:', error);
-    return 0;
-  }
+  },
+
+ // Calculate COGS for transactions array
+// Authoritative rule: use the server-stored `transaction.cost` when present,
+// only fall back to item-based recomputation when the server didn't provide one.
+// This guarantees Shop Performance matches Financial Overview exactly.
+calculateCOGS: (transactions, products = []) => {
+  if (!Array.isArray(transactions)) return 0;
+
+  console.log('🧮 COGS Calculation - Processing transactions:', transactions.length);
+
+  const totalCOGS = transactions.reduce((sum, transaction) => {
+    // 1. Prefer server-stored cost (matches Financial Overview)
+    const storedCost = CalculationUtils.safeNumber(transaction.cost);
+    if (storedCost > 0) return sum + storedCost;
+
+    // 2. Alternative stored cost field
+    const storedTotalCost = CalculationUtils.safeNumber(transaction.totalCost);
+    if (storedTotalCost > 0) return sum + storedTotalCost;
+
+    // 3. Fall back to item-based recompute (last resort for very old data)
+    const itemCost = CalculationUtils.calculateCostFromItems(transaction, products);
+    return sum + itemCost;
+  }, 0);
+
+  console.log('💰 FINAL COGS Calculation Result:', {
+    totalTransactions: transactions.length,
+    totalCOGS: totalCOGS
+  });
+
+  return totalCOGS;
 },
 
-  // Calculate COGS for transactions array - SIMPLIFIED (No credit handling needed)
-  calculateCOGS: (transactions, products = []) => {
+  // Unified COGS calculation that matches server logic
+  calculateCOGSConsistent: (transactions, products = []) => {
     if (!Array.isArray(transactions)) return 0;
     
-    console.log('🧮 COGS Calculation - Processing transactions:', transactions.length);
+    console.log('🧮 Unified COGS Calculation - Processing:', transactions.length, 'transactions');
     
     const totalCOGS = transactions.reduce((sum, transaction) => {
-      const cost = CalculationUtils.calculateCostFromItems(transaction, products);
-      return sum + cost;
+      // Try to get cost from transaction first (should match server calculation)
+      const transactionCost = CalculationUtils.safeNumber(transaction.cost);
+      
+      if (transactionCost > 0) {
+        return sum + transactionCost;
+      }
+      
+      // Fallback to item-based calculation
+      const costFromItems = CalculationUtils.calculateCostFromItems(transaction, products);
+      return sum + costFromItems;
     }, 0);
     
-    console.log('💰 FINAL COGS Calculation Result:', {
-      totalTransactions: transactions.length,
-      totalCOGS: totalCOGS
-    });
-    
+    console.log('💰 Unified COGS Result:', totalCOGS);
     return totalCOGS;
   },
 
@@ -178,9 +281,13 @@ calculateCostFromItems: (transaction, products = []) => {
   processComprehensiveData: (rawData, selectedShop) => {
     try {
       console.log('🔧 Processing comprehensive data...', {
-        rawDataKeys: Object.keys(rawData),
+        rawDataKeys: Object.keys(rawData || {}),
         selectedShop
       });
+
+      if (!rawData) {
+        return CalculationUtils.getDefaultProcessedData();
+      }
 
       // Extract data with proper fallbacks
       const transactions = rawData.transactions || 
@@ -380,7 +487,7 @@ calculateCostFromItems: (transaction, products = []) => {
       const totalProfit = CalculationUtils.calculateProfit(totalRevenue, costOfGoodsSold);
       
       // Expense calculations
-      const totalExpensesAmount = expenses.reduce((sum, e) => 
+      const totalExpensesAmount = (expenses || []).reduce((sum, e) => 
         sum + CalculationUtils.safeNumber(e.amount), 0
       );
       const netProfit = CalculationUtils.calculateProfit(totalProfit, totalExpensesAmount);
@@ -617,29 +724,6 @@ calculateCostFromItems: (transaction, products = []) => {
       .sort((a, b) => b.revenue - a.revenue);
   },
 
-  // Unified COGS calculation that matches server logic
-  calculateCOGSConsistent: (transactions, products = []) => {
-    if (!Array.isArray(transactions)) return 0;
-    
-    console.log('🧮 Unified COGS Calculation - Processing:', transactions.length, 'transactions');
-    
-    const totalCOGS = transactions.reduce((sum, transaction) => {
-      // Try to get cost from transaction first (should match server calculation)
-      const transactionCost = CalculationUtils.safeNumber(transaction.cost);
-      
-      if (transactionCost > 0) {
-        return sum + transactionCost;
-      }
-      
-      // Fallback to item-based calculation
-      const costFromItems = CalculationUtils.calculateCostFromItems(transaction, products);
-      return sum + costFromItems;
-    }, 0);
-    
-    console.log('💰 Unified COGS Result:', totalCOGS);
-    return totalCOGS;
-  },
-
   // Cashier performance calculation
   calculateCashierPerformance: (transactions, cashiers = []) => {
     if (!transactions || !Array.isArray(transactions)) {
@@ -707,6 +791,8 @@ calculateCostFromItems: (transaction, products = []) => {
 
   // Handle consistent payment split calculations
   calculatePaymentSplit: (transaction) => {
+    if (!transaction) return { cash: 0, mpesa_bank: 0, total: 0 };
+
     const paymentMethod = transaction.paymentMethod;
     const totalAmount = CalculationUtils.safeNumber(transaction.totalAmount);
     
@@ -724,6 +810,9 @@ calculateCostFromItems: (transaction, products = []) => {
       // Fallback for old data structure
       cash = CalculationUtils.safeNumber(transaction.cashAmount || 0);
       mpesa_bank = CalculationUtils.safeNumber(transaction.mpesaBankAmount || transaction.bankMpesaAmount || 0);
+    } else if (transaction.paymentSplit) {
+      cash = CalculationUtils.safeNumber(transaction.paymentSplit.cash);
+      mpesa_bank = CalculationUtils.safeNumber(transaction.paymentSplit.mpesa_bank);
     } else {
       // Default fallback for other payment methods
       cash = totalAmount;
@@ -738,6 +827,17 @@ calculateCostFromItems: (transaction, products = []) => {
 
   // Calculate payment composition for transactions
   calculatePaymentComposition: (transactions) => {
+    if (!Array.isArray(transactions)) {
+      return {
+        cash: 0,
+        mpesa_bank: 0,
+        total: 0,
+        transactions: 0,
+        cashPercentage: 0,
+        mpesaBankPercentage: 0
+      };
+    }
+
     const composition = {
       cash: 0,
       mpesa_bank: 0,
